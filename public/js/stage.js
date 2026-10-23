@@ -1,5 +1,5 @@
-/* WebGL2-сцена: сцена → буфер с субпиксельным сдвигом → накопление (TAA) → пост-проход (резкость, блум, молочная шторка). */
-import { VERT, SCENES, RESOLVE, POST } from './shaders.js';
+/* WebGL2-сцена: сцена → буфер с субпиксельным сдвигом → накопление (TAA) → пост-проход (резкость, блум, молочная шторка) → FXAA на размере экрана. */
+import { VERT, SCENES, RESOLVE, POST, FXAA } from './shaders.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -70,19 +70,20 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
 
   const post = makeProgram(POST);
   const resolve = makeProgram(RESOLVE);
+  const aa = makeProgram(FXAA);
   const scenes = SCENES.map(() => null);
   const compileScene = (i) => { if (!scenes[i]) scenes[i] = makeProgram(SCENES[i]); };
   compileScene(0);
 
   /* ---------- буферы: текущий кадр + два буфера истории (с мипами для блума) ---------- */
   const fmt = floatRT ? gl.RGBA16F : gl.RGBA8;
-  const B = { w: 0, h: 0, cur: null, hist: [null, null], fCur: null, fHist: [null, null], r: 0 };
-  function makeTarget(w, h, mips) {
+  const B = { w: 0, h: 0, cur: null, hist: [null, null], r: 0, ldr: null, lw: 0, lh: 0 };
+  function makeTarget(w, h, mips, format = fmt, linear = mips) {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texStorage2D(gl.TEXTURE_2D, mips ? Math.floor(Math.log2(Math.max(w, h))) + 1 : 1, fmt, w, h);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mips ? gl.LINEAR : gl.NEAREST);
+    gl.texStorage2D(gl.TEXTURE_2D, mips ? Math.floor(Math.log2(Math.max(w, h))) + 1 : 1, format, w, h);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : linear ? gl.LINEAR : gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, linear ? gl.LINEAR : gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     const fbo = gl.createFramebuffer();
@@ -187,7 +188,12 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   }
 
   function drawPost(lay) {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (B.lw !== S.cw || B.lh !== S.ch) {
+      if (B.ldr) { gl.deleteTexture(B.ldr.tex); gl.deleteFramebuffer(B.ldr.fbo); }
+      B.ldr = makeTarget(S.cw, S.ch, false, gl.RGBA8, true);
+      B.lw = S.cw; B.lh = S.ch;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, B.ldr.fbo);
     gl.viewport(0, 0, S.cw, S.ch);
     gl.useProgram(post.p);
     gl.activeTexture(gl.TEXTURE0);
@@ -197,7 +203,16 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     gl.uniform2f(post.u.uTexRes, B.w, B.h);
     gl.uniform1f(post.u.uTime, S.time);
     gl.uniform2f(post.u.uWipe, lay.wx, lay.wy);
-    gl.uniform1f(post.u.uFade, S.fade);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    /* сглаживание краёв по готовому изображению, затем дизеринг и плавное появление */
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(aa.p);
+    gl.bindTexture(gl.TEXTURE_2D, B.ldr.tex);
+    gl.uniform1i(aa.u.uTex, 0);
+    gl.uniform2f(aa.u.uRes, S.cw, S.ch);
+    gl.uniform1f(aa.u.uTime, S.time);
+    gl.uniform1f(aa.u.uFade, S.fade);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -237,7 +252,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
 
     /* первый кадр: ждём главную сцену и пост-проходы */
     if (!S.ready) {
-      if (scenes[0] && poll(scenes[0]) && poll(post) && poll(resolve)) {
+      if (scenes[0] && poll(scenes[0]) && poll(post) && poll(resolve) && poll(aa)) {
         S.ready = true; S.bgAt = now + 500;
         onReady && onReady();
       } else return;
@@ -281,10 +296,11 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     const dM = (Math.abs(S.mx - S.pmx) + Math.abs(S.my - S.pmy)) / Math.max(dt, 1e-3);
     S.pP = S.P; S.pmx = S.mx; S.pmy = S.my;
     const mv = Math.max(smooth(0.003, 0.05, dP), smooth(0.03, 0.4, dM));
+    /* при движении история не отбрасывается, а лишь слабее учитывается: края остаются сглаженными и на прокрутке */
     const base = !floatRT ? 1 : reduced ? 0.1 : sc === 0 ? 0.24 : 0.16;
-    let alpha = mix(base, 1, mv);
-    if (S.reset > 0) { alpha = 1; S.reset--; }
-    const jit = alpha < 0.99 ? 1 - smooth(0.2, 0.6, alpha) : 0;
+    let alpha = floatRT ? mix(base, 0.5, mv) : 1;
+    let jit = floatRT ? 1 : 0;
+    if (S.reset > 0) { alpha = 1; jit = 0; S.reset--; }
     S.jf = S.jf % 16 + 1;
     const jx = (halton(S.jf, 2) - 0.5) * jit, jy = (halton(S.jf, 3) - 0.5) * jit;
 

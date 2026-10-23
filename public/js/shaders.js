@@ -80,6 +80,11 @@ vec2 march(vec3 ro,vec3 rd){
     t+=max(h.x*STEP,.003*t);
     if(t>TMAX) return vec2(t,-1.);
   }
+  /* досадка до поверхности: точка попадания не «плавает» от луча к лучу — ровные края и нормали */
+  for(int i=ZERO;i<2;i++){
+    vec2 h=map(ro+rd*t);
+    t+=clamp(h.x,-.004*t,.004*t);
+  }
   return vec2(t,id);
 }
 /* укороченный марш для отражений: там детали не нужны */
@@ -192,38 +197,42 @@ vec2 map(vec3 p){
   float pPress=smoothstep(.46,.70,u);
   float dFloor=p.y+1.3;
 
-  float wob=.05*sin(p.x*4.+gT*2.)*sin(p.y*3.-gT*1.7)*sin(p.z*5.+gT*2.3);
-  float drop=length(p*vec3(1.,.93,1.))-.92-wob*(1.-pCurd);
+  /* всё, что внутри шара радиуса ~2 (капля, творог, головка, спутники), считаем только рядом с ним */
+  float bs=length(p)-2.1;
+  float body=bs;
+  if(bs<.3){
+    float wob=.05*sin(p.x*4.+gT*2.)*sin(p.y*3.-gT*1.7)*sin(p.z*5.+gT*2.3);
+    float drop=length(p*vec3(1.,.93,1.))-.92-wob*(1.-pCurd);
 
-  float curds=1e3;
-  float spread=mix(0.,.9,pCurd)*(1.-pPress);
-  for(int i=ZERO;i<9;i++){
-    float fi=float(i);
-    vec3 dir=normalize(vec3(h11(fi+1.)-.5,h11(fi+7.)-.5,h11(fi+13.)-.5)*2.+vec3(0.,0.,.0001));
-    float rad=(.32+.15*h11(fi+3.))*(1.+(1.-pCurd)*.65);
-    vec3 c=dir*spread*(.55+.7*h11(fi+5.));
-    c+=.07*vec3(sin(gT*.8+fi*1.3),cos(gT*.9+fi*2.1),sin(gT*.7+fi*3.1))*pCurd*(1.-pPress);
-    curds=smin(curds,length(p-c)-rad,.24-.17*pCurd*(1.-pPress));
-  }
-  float blob=mix(drop,curds,smoothstep(0.,.45,pCurd));
-  blob+=.03*sin(p.x*5.+gT*.4)*sin(p.y*4.7-gT*.3)*sin(p.z*5.3)*smoothstep(.1,.5,pCurd)*(1.-pPress);
-
-  float wheel=sdRoundCyl(p,.95,.26,.1);
-  float body=mix(blob,wheel,pPress);
-
-  /* спутники-капельки вокруг капли */
-  float sat=1e3;
-  float sv=(1.-smoothstep(.0,.2,u));
-  if(sv>.01){
-    for(int i=ZERO;i<4;i++){
+    float curds=1e3;
+    float spread=mix(0.,.9,pCurd)*(1.-pPress);
+    for(int i=ZERO;i<9;i++){
       float fi=float(i);
-      float a=gT*(.5+.13*fi)+fi*1.7;
-      vec3 c=vec3(cos(a)*1.45,sin(a*1.3+fi)*.5,sin(a)*1.45);
-      sat=min(sat,length(p-c)-(.07+.03*h11(fi))*sv);
+      vec3 dir=normalize(vec3(h11(fi+1.)-.5,h11(fi+7.)-.5,h11(fi+13.)-.5)*2.+vec3(0.,0.,.0001));
+      float rad=(.32+.15*h11(fi+3.))*(1.+(1.-pCurd)*.65);
+      vec3 c=dir*spread*(.55+.7*h11(fi+5.));
+      c+=.07*vec3(sin(gT*.8+fi*1.3),cos(gT*.9+fi*2.1),sin(gT*.7+fi*3.1))*pCurd*(1.-pPress);
+      curds=smin(curds,length(p-c)-rad,.24-.17*pCurd*(1.-pPress));
     }
-  }
-  body=smin(body,sat,.05);
+    float blob=mix(drop,curds,smoothstep(0.,.45,pCurd));
+    blob+=.03*sin(p.x*5.+gT*.4)*sin(p.y*4.7-gT*.3)*sin(p.z*5.3)*smoothstep(.1,.5,pCurd)*(1.-pPress);
 
+    float wheel=sdRoundCyl(p,.95,.26,.1);
+    body=mix(blob,wheel,pPress);
+
+    /* спутники-капельки вокруг капли */
+    float sat=1e3;
+    float sv=(1.-smoothstep(.0,.2,u));
+    if(sv>.01){
+      for(int i=ZERO;i<4;i++){
+        float fi=float(i);
+        float a=gT*(.5+.13*fi)+fi*1.7;
+        vec3 c=vec3(cos(a)*1.45,sin(a*1.3+fi)*.5,sin(a)*1.45);
+        sat=min(sat,length(p-c)-(.07+.03*h11(fi))*sv);
+      }
+    }
+    body=smin(body,sat,.05);
+  }
   vec2 res=vec2(body,1.);
 
   float plateUp=smoothstep(.46,.60,u)*(1.-smoothstep(.70,.80,u));
@@ -707,8 +716,11 @@ void main(){
   }
   vec3 mean=m1/9., sig=sqrt(max(m2/9.-mean*mean,0.));
   vec3 lo=max(mn,mean-1.5*sig), up=min(mx,mean+1.5*sig);
-  vec3 h=clamp(tm(texelFetch(uHist,p,0).rgb),lo,up);
-  fragColor=vec4(itm(mix(h,c,uAlpha)),1.);
+  vec3 hr=tm(texelFetch(uHist,p,0).rgb);
+  vec3 h=clamp(hr,lo,up);
+  /* где история сильно не сходится с соседями (движение у краёв) — доверяем текущему кадру, иначе края «ломаются» */
+  float rej=smoothstep(.035,.16,length(hr-h));
+  fragColor=vec4(itm(mix(h,c,max(uAlpha,rej))),1.);
 }`;
 
 /* ---------- Пост-проход: бикубическое увеличение, резкость, блум, молочная шторка, виньетка, тон ---------- */
@@ -803,9 +815,73 @@ void main(){
   milk=mix(milk,vec3(1.),edge*.55);
   milk*=1.-.12*smoothstep(.45,.95,v);
   col=mix(col,milk,cv);
-  /* треугольный дизеринг (нет полос на градиентах) + лёгкое плёночное зерно */
+  fragColor=vec4(col,1.);
+}`;
+
+/* ---------- Финальное сглаживание краёв на размере экрана (FXAA 3.11, расширенный поиск края) + дизеринг ----------
+   Работает по уже увеличенной картинке: убирает «ступеньки» там, где накопление кадров не успевает (при прокрутке). */
+export const FXAA = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uFade;
+out vec4 fragColor;
+float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float lm(vec3 c){ return dot(c,vec3(.299,.587,.114)); }
+vec3 S(vec2 uv){ return textureLod(uTex,uv,0.).rgb; }
+float L(vec2 uv){ return lm(S(uv)); }
+vec3 fin(vec3 col){
   vec2 fc=gl_FragCoord.xy+fract(uTime)*91.;
   col+=(h21(fc)+h21(fc+37.7)-1.)*(1.5/255.)+(h21(fc+11.3)-.5)*.012;
-  col*=1.-uFade;
-  fragColor=vec4(col,1.);
+  return col*(1.-uFade);
+}
+void main(){
+  vec2 px=1./uRes;
+  vec2 uv=gl_FragCoord.xy*px;
+  vec3 rgbM=S(uv);
+  float lM=lm(rgbM);
+  float lN=L(uv+vec2(0.,px.y)), lS=L(uv-vec2(0.,px.y)), lE=L(uv+vec2(px.x,0.)), lW=L(uv-vec2(px.x,0.));
+  float mx=max(lM,max(max(lN,lS),max(lE,lW))), mn=min(lM,min(min(lN,lS),min(lE,lW)));
+  float range=mx-mn;
+  if(range<max(.0312,mx*.125)){ fragColor=vec4(fin(rgbM),1.); return; }
+  float lNW=L(uv+vec2(-px.x,px.y)), lNE=L(uv+px), lSW=L(uv-px), lSE=L(uv+vec2(px.x,-px.y));
+  float lNS=lN+lS, lWE=lW+lE, lNWSW=lNW+lSW, lNESE=lNE+lSE, lNWNE=lNW+lNE, lSWSE=lSW+lSE;
+  float edgeH=abs(-2.*lW+lNWSW)+abs(-2.*lM+lNS)*2.+abs(-2.*lE+lNESE);
+  float edgeV=abs(-2.*lN+lNWNE)+abs(-2.*lM+lWE)*2.+abs(-2.*lS+lSWSE);
+  bool horz=edgeH>=edgeV;
+  float l1=horz?lS:lW, l2=horz?lN:lE;
+  float g1=l1-lM, g2=l2-lM;
+  bool is1=abs(g1)>=abs(g2);
+  float grad=.25*max(abs(g1),abs(g2));
+  float stepL=horz?px.y:px.x;
+  float lAvg;
+  if(is1){ stepL=-stepL; lAvg=.5*(l1+lM); } else lAvg=.5*(l2+lM);
+  vec2 cur=uv;
+  if(horz) cur.y+=stepL*.5; else cur.x+=stepL*.5;
+  vec2 off=horz?vec2(px.x,0.):vec2(0.,px.y);
+  vec2 p1=cur-off, p2=cur+off;
+  float e1=L(p1)-lAvg, e2=L(p2)-lAvg;
+  bool d1=abs(e1)>=grad, d2=abs(e2)>=grad;
+  if(!d1) p1-=off;
+  if(!d2) p2+=off;
+  for(int i=0;i<14;i++){
+    if(d1&&d2) break;
+    if(!d1){ e1=L(p1)-lAvg; d1=abs(e1)>=grad; if(!d1) p1-=off; }
+    if(!d2){ e2=L(p2)-lAvg; d2=abs(e2)>=grad; if(!d2) p2+=off; }
+  }
+  float dist1=horz?uv.x-p1.x:uv.y-p1.y;
+  float dist2=horz?p2.x-uv.x:p2.y-uv.y;
+  bool dir1=dist1<dist2;
+  float dstN=min(dist1,dist2), span=dist1+dist2;
+  bool lowM=(lM-lAvg)<0.;
+  bool good=dir1?((e1<0.)!=lowM):((e2<0.)!=lowM);
+  float pix=good?-dstN/span+.5:0.;
+  float lAll=(2.*(lNS+lWE)+lNWSW+lNESE)/12.;
+  float sub=smoothstep(0.,1.,clamp(abs(lAll-lM)/range,0.,1.));
+  sub=sub*sub*.75;
+  float fo=max(pix,sub);
+  vec2 fuv=uv;
+  if(horz) fuv.y+=fo*stepL; else fuv.x+=fo*stepL;
+  fragColor=vec4(fin(S(fuv)),1.);
 }`;
