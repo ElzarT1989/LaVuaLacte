@@ -13,6 +13,7 @@ uniform float uTime;
 uniform float uU;
 uniform vec2 uMouse;
 uniform float uShift;
+uniform vec2 uJit;
 out vec4 fragColor;
 #define PI 3.14159265
 #define ZERO min(int(uRes.x),0)
@@ -157,7 +158,7 @@ vec3 lighting(vec3 p,vec3 n,vec3 rd,vec3 alb,float rough,float specAmt,float sss
 const MAIN = `
 void main(){
   gT=uTime;
-  vec2 uv=(2.*gl_FragCoord.xy-uRes)/uRes.y;
+  vec2 uv=(2.*(gl_FragCoord.xy+uJit)-uRes)/uRes.y;
   uv.x-=uShift;
   vec3 ro,ta; float fov;
   camera(ro,ta,fov);
@@ -602,7 +603,7 @@ float H(vec2 p){
 }
 void main(){
   gT=uTime;
-  vec2 uv=(2.*gl_FragCoord.xy-uRes)/uRes.y;
+  vec2 uv=(2.*(gl_FragCoord.xy+uJit)-uRes)/uRes.y;
   uv.x-=uShift;
   float s=smoothstep(0.,1.,uU);
   vec3 ro=vec3(uMouse.x*.25,mix(2.3,1.15,s)+uMouse.y*.1,-3.2+uU*2.2);
@@ -682,11 +683,40 @@ export const SCENES = [
   scene(PROD_MAP, PROD_LOOK),
 ];
 
-/* ---------- Пост-проход: блум, молочная шторка, виньетка, зерно, тон ---------- */
+/* ---------- Временное накопление (TAA): сглаживает края и добавляет детали, пока кадр почти не меняется ----------
+   Субпиксельный сдвиг камеры (uJit) + история, зажатая в окрестности текущего пикселя (без «шлейфов»). */
+export const RESOLVE = `#version 300 es
+precision highp float;
+uniform sampler2D uCur;
+uniform sampler2D uHist;
+uniform float uAlpha;
+out vec4 fragColor;
+vec3 tm(vec3 c){ return c/(1.+c); }
+vec3 itm(vec3 t){ t=min(t,vec3(.995)); return t/(1.-t); }
+void main(){
+  ivec2 p=ivec2(gl_FragCoord.xy);
+  ivec2 hi=textureSize(uCur,0)-1;
+  vec3 c=tm(texelFetch(uCur,p,0).rgb);
+  vec3 mn=c, mx=c, m1=c, m2=c*c;
+  for(int y=-1;y<=1;y++){
+    for(int x=-1;x<=1;x++){
+      if(x==0&&y==0) continue;
+      vec3 n=tm(texelFetch(uCur,clamp(p+ivec2(x,y),ivec2(0),hi),0).rgb);
+      mn=min(mn,n); mx=max(mx,n); m1+=n; m2+=n*n;
+    }
+  }
+  vec3 mean=m1/9., sig=sqrt(max(m2/9.-mean*mean,0.));
+  vec3 lo=max(mn,mean-1.5*sig), up=min(mx,mean+1.5*sig);
+  vec3 h=clamp(tm(texelFetch(uHist,p,0).rgb),lo,up);
+  fragColor=vec4(itm(mix(h,c,uAlpha)),1.);
+}`;
+
+/* ---------- Пост-проход: бикубическое увеличение, резкость, блум, молочная шторка, виньетка, тон ---------- */
 export const POST = `#version 300 es
 precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uRes;
+uniform vec2 uTexRes;
 uniform float uTime;
 uniform vec2 uWipe;
 uniform float uFade;
@@ -696,29 +726,35 @@ float n2(vec2 p){
   vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
   return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);
 }
-uniform vec2 uTexRes;
 vec3 tmS(vec3 c){ return c/(1.+c); }
-vec3 fetchT(vec2 uv){ return tmS(texture(uTex,uv).rgb); }
-/* FXAA в «сжатом» пространстве, потом обратно в линейное */
-vec3 fxaa(vec2 uv){
+vec3 fT(vec2 uv){ return tmS(texture(uTex,uv).rgb); }
+
+/* Catmull-Rom за 5 билинейных выборок — в «сжатом» пространстве, чтобы блики не звенели */
+vec3 bicubic(vec2 uv){
+  vec2 tp=uv*uTexRes;
+  vec2 c=floor(tp-.5)+.5;
+  vec2 f=tp-c;
+  vec2 w0=f*(-.5+f*(1.-.5*f));
+  vec2 w1=1.+f*f*(-2.5+1.5*f);
+  vec2 w2=f*(.5+f*(2.-1.5*f));
+  vec2 w3=f*f*(-.5+.5*f);
+  vec2 s=w1+w2;
+  vec2 o=w2/s;
+  vec2 t0=(c-1.)/uTexRes, t3=(c+2.)/uTexRes, t12=(c+o)/uTexRes;
+  vec3 r=fT(vec2(t12.x,t0.y))*(s.x*w0.y)
+        +fT(vec2(t0.x,t12.y))*(w0.x*s.y)
+        +fT(t12)*(s.x*s.y)
+        +fT(vec2(t3.x,t12.y))*(w3.x*s.y)
+        +fT(vec2(t12.x,t3.y))*(s.x*w3.y);
+  return r/(s.x*w0.y+w0.x*s.y+s.x*s.y+w3.x*s.y+s.x*w3.y);
+}
+/* резкость: нерезкая маска, зажатая диапазоном соседей (без ореолов) */
+vec3 sharpen(vec2 uv,vec3 c){
   vec2 px=1./uTexRes;
-  vec3 K=vec3(.299,.587,.114);
-  vec3 nw=fetchT(uv+vec2(-1.,-1.)*px), ne=fetchT(uv+vec2(1.,-1.)*px);
-  vec3 sw=fetchT(uv+vec2(-1.,1.)*px), se=fetchT(uv+vec2(1.,1.)*px);
-  vec3 m=fetchT(uv);
-  float lnw=dot(nw,K), lne=dot(ne,K), lsw=dot(sw,K), lse=dot(se,K), lm=dot(m,K);
-  float lmin=min(lm,min(min(lnw,lne),min(lsw,lse)));
-  float lmax=max(lm,max(max(lnw,lne),max(lsw,lse)));
-  vec2 dir=vec2(-((lnw+lne)-(lsw+lse)),((lnw+lsw)-(lne+lse)));
-  float red=max((lnw+lne+lsw+lse)*.03125,.0078125);
-  float rcp=1./(min(abs(dir.x),abs(dir.y))+red);
-  dir=clamp(dir*rcp,-8.,8.)*px;
-  vec3 a=.5*(fetchT(uv+dir*(1./3.-.5))+fetchT(uv+dir*(2./3.-.5)));
-  vec3 b=a*.5+.25*(fetchT(uv+dir*-.5)+fetchT(uv+dir*.5));
-  float lb=dot(b,K);
-  vec3 r=(lb<lmin||lb>lmax)?a:b;
-  r=min(r,vec3(.995));
-  return r/(1.-r);
+  vec3 a=fT(uv+vec2(px.x,0.)), b=fT(uv-vec2(px.x,0.)), d=fT(uv+vec2(0.,px.y)), e=fT(uv-vec2(0.,px.y));
+  vec3 mn=min(c,min(min(a,b),min(d,e))), mx=max(c,max(max(a,b),max(d,e)));
+  vec3 blur=(a+b+d+e)*.25;
+  return clamp(c+(c-blur)*.55,mn,mx);
 }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.,1.); }
 
@@ -739,16 +775,19 @@ void main(){
   float asp=uRes.x/uRes.y;
   float edge;
   float cv=cover(uv,asp,edge);
-  vec2 off=vec2(0.,1.)*edge*.012*(n2(uv*9.+uTime)-.5);
-  vec2 cuv=uv+off+(uv-.5)*.004;
-  vec3 col=fxaa(cuv);
-  col.r=mix(col.r,texture(uTex,cuv+(uv-.5)*.0016).r,.5);
-  col.b=mix(col.b,texture(uTex,cuv-(uv-.5)*.0016).b,.5);
+  vec2 cuv=uv+vec2(0.,1.)*edge*.012*(n2(uv*9.+uTime)-.5);
+  vec3 t=sharpen(cuv,bicubic(cuv));
+  t=min(t,vec3(.995));
+  vec3 col=t/(1.-t);
+  /* блум: 4 выборки на уровень вместо одной — без блочности мип-цепочки */
   vec3 bl=vec3(0.);
   float w=1.;
   for(int i=2;i<=6;i++){ // постоянные границы — безопасно
-    vec3 s=textureLod(uTex,cuv,float(i)).rgb;
-    bl+=max(s-vec3(.9),0.)*w;
+    float L=float(i);
+    vec2 px=exp2(L)/uTexRes;
+    vec3 s=textureLod(uTex,cuv+px*vec2(-.7,-.7),L).rgb+textureLod(uTex,cuv+px*vec2(.7,-.7),L).rgb
+          +textureLod(uTex,cuv+px*vec2(-.7,.7),L).rgb+textureLod(uTex,cuv+px*vec2(.7,.7),L).rgb;
+    bl+=max(s*.25-vec3(.9),0.)*w;
     w*=1.05;
   }
   col+=bl*.17;
@@ -764,7 +803,9 @@ void main(){
   milk=mix(milk,vec3(1.),edge*.55);
   milk*=1.-.12*smoothstep(.45,.95,v);
   col=mix(col,milk,cv);
-  col+=(h21(gl_FragCoord.xy+fract(uTime)*91.)-.5)*.03;
+  /* треугольный дизеринг (нет полос на градиентах) + лёгкое плёночное зерно */
+  vec2 fc=gl_FragCoord.xy+fract(uTime)*91.;
+  col+=(h21(fc)+h21(fc+37.7)-1.)*(1.5/255.)+(h21(fc+11.3)-.5)*.012;
   col*=1.-uFade;
   fragColor=vec4(col,1.);
 }`;
