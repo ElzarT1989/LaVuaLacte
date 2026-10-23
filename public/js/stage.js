@@ -107,23 +107,23 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   /* ---------- состояние ---------- */
   const coarse = matchMedia('(pointer:coarse)').matches || innerWidth < 760;
   /* ступени разрешения сцены (доля от размера холста): меняем редко и только на соседнюю ступень */
-  const STEPS = fixedScale ? [fixedScale] : coarse ? [0.4, 0.5, 0.6, 0.7, 0.8] : [0.5, 0.58, 0.67, 0.77, 0.88, 1];
-  const START = fixedScale ? 0 : coarse ? 1 : 2;
+  const STEPS = fixedScale ? [fixedScale] : coarse ? [0.36, 0.42, 0.49, 0.56, 0.64, 0.72, 0.8, 0.9] : [0.5, 0.58, 0.67, 0.77, 0.88, 1];
+  const START = fixedScale ? 0 : coarse ? 3 : 2;
   const S = {
     target: 0, P: 0, time: reduced ? 3 : 0, mx: 0, my: 0, tmx: 0, tmy: 0,
     cw: 0, ch: 0, visible: true, fade: 1, hold: 0,
     bgNext: 1, bgAt: 0, ready: false, last: 0, immediate: false,
     si: SCENES.map(() => START), maxi: SCENES.map(() => STEPS.length - 1),
-    ema: 16, slow: 0, fast: 0, warm: 0, block: 0, frames: 0, reset: 2, jf: 0,
+    ema: 16, rf: 16.7, slow: 0, fast: 0, warm: 0, block: 0, frames: 0, reset: 2, jf: 0,
     pP: 0, pmx: 0, pmy: 0, lastScene: -1, maxDt: 0, warmed: [true, false, false, false],
   };
   if (fixedTime !== null) { S.time = fixedTime; reduced = true; }
 
   /* холст: не больше ~2 Мп (3D-кадр после этого увеличивается бикубикой), размер меняем с задержкой — без дёрганья при изменении окна */
-  const MAXPX = coarse ? 1.3e6 : 2.1e6;
+  const MAXPX = coarse ? 1.9e6 : 2.1e6;
   function measure() {
     const cssW = Math.max(2, canvas.clientWidth), cssH = Math.max(2, canvas.clientHeight);
-    const dpr = Math.min(devicePixelRatio || 1, 1.5, Math.sqrt(MAXPX / (cssW * cssH)));
+    const dpr = Math.min(devicePixelRatio || 1, coarse ? 2 : 1.5, Math.sqrt(MAXPX / (cssW * cssH)));
     const w = Math.max(2, Math.round(cssW * dpr)), h = Math.max(2, Math.round(cssH * dpr));
     if (w !== canvas.width || h !== canvas.height) { canvas.width = w; canvas.height = h; }
     S.cw = w; S.ch = h;
@@ -231,13 +231,15 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   /* адаптивное разрешение — по ступеням, отдельно для каждой сцены */
   function adapt(sc, ms, compiling) {
     if (S.warm > 0) { S.warm--; return; }
-    if (ms > 25) { S.slow++; S.fast = 0; } else if (ms < 15) { S.fast++; S.slow = 0; } else { S.slow = 0; S.fast = 0; }
+    /* кадр упирается в частоту экрана (60 Гц = 16,7 мс), поэтому «быстро» — это «держим частоту», а не «меньше 15 мс» */
+    const fastMs = Math.max(17.5, S.rf * 1.3), slowMs = Math.max(24, S.rf * 1.6);
+    if (ms > slowMs) { S.slow++; S.fast = 0; } else if (ms < fastMs) { S.fast++; S.slow = 0; } else { S.slow = 0; S.fast = 0; }
     if (S.block > 0) S.block--;
     if (S.slow > 10 && S.si[sc] > 0) {
       /* если вернулись на ступень, которая уже не тянула, — больше туда не поднимаемся */
       if (S.block > 0) S.maxi[sc] = Math.max(0, S.si[sc] - 1);
       S.si[sc]--; S.slow = 0; S.block = 900;
-    } else if (S.fast > 150 && !compiling && S.si[sc] < S.maxi[sc]) {
+    } else if (S.fast > (coarse ? 90 : 150) && !compiling && S.si[sc] < S.maxi[sc]) {
       S.si[sc]++; S.fast = 0;
     }
   }
@@ -317,6 +319,8 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
 
     /* замер кадра: выбросы (сборка шейдеров, скачки вкладки) не должны сбивать разрешение */
     S.ema += (Math.min(raw * 1000, 40) - S.ema) * 0.08;
+    /* частота экрана: минимальный интервал между кадрами (медленно «отпускается», если экран сменил режим) */
+    S.rf = Math.min(17.5, Math.max(6.5, Math.min(S.rf + 0.02, raw * 1000)));
     S.frames++;
     S.maxDt = Math.max(S.maxDt, raw * 1000);
     if (S.frames > 20) adapt(sc, S.ema, compiling);

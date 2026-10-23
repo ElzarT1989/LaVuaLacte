@@ -191,6 +191,9 @@ const OBJ_MAP = `
 #define TMAX 20.
 #define STEP .7
 #define FOG .006
+/* положения комочков творога (посчитаны заранее) */
+const vec3 CP[9]=vec3[9](vec3(0.4726,-0.4872,0.5309),vec3(-0.2345,0.8261,0.6330),vec3(0.4478,0.4881,0.3111),vec3(0.5365,0.9178,-0.3257),vec3(-0.1288,1.0952,-0.3220),vec3(0.4340,-0.8232,-0.8004),vec3(-0.6916,0.7535,0.6749),vec3(0.4347,0.3331,-0.2019),vec3(0.8677,0.5530,0.3386));
+const float CR[9]=float[9](0.4439,0.4360,0.3868,0.4307,0.3590,0.4404,0.4483,0.4652,0.4647);
 vec2 map(vec3 p){
   float u=uU;
   float pCurd=smoothstep(.14,.40,u);
@@ -201,24 +204,28 @@ vec2 map(vec3 p){
   float bs=length(p)-2.1;
   float body=bs;
   if(bs<.3){
-    float wob=.05*sin(p.x*4.+gT*2.)*sin(p.y*3.-gT*1.7)*sin(p.z*5.+gT*2.3);
-    float drop=length(p*vec3(1.,.93,1.))-.92-wob*(1.-pCurd);
-
-    float curds=1e3;
-    float spread=mix(0.,.9,pCurd)*(1.-pPress);
-    for(int i=ZERO;i<9;i++){
-      float fi=float(i);
-      vec3 dir=normalize(vec3(h11(fi+1.)-.5,h11(fi+7.)-.5,h11(fi+13.)-.5)*2.+vec3(0.,0.,.0001));
-      float rad=(.32+.15*h11(fi+3.))*(1.+(1.-pCurd)*.65);
-      vec3 c=dir*spread*(.55+.7*h11(fi+5.));
-      c+=.07*vec3(sin(gT*.8+fi*1.3),cos(gT*.9+fi*2.1),sin(gT*.7+fi*3.1))*pCurd*(1.-pPress);
-      curds=smin(curds,length(p-c)-rad,.24-.17*pCurd*(1.-pPress));
+    /* фазы идут по uniform'у, поэтому ветки когерентны: в готовой головке сыра капля и творог не считаются вовсе */
+    float wheel=1e3, blob=1e3;
+    if(pPress>.001) wheel=sdRoundCyl(p,.95,.26,.1);
+    if(pPress<.999){
+      float wob=.05*sin(p.x*4.+gT*2.)*sin(p.y*3.-gT*1.7)*sin(p.z*5.+gT*2.3);
+      float drop=1e3, curds=1e3;
+      if(pCurd<.999) drop=length(p*vec3(1.,.93,1.))-.92-wob*(1.-pCurd);
+      if(pCurd<=.001) curds=drop;
+      if(pCurd>.001){
+        float spread=mix(0.,.9,pCurd)*(1.-pPress);
+        for(int i=ZERO;i<9;i++){
+          float fi=float(i);
+          float rad=CR[i]*(1.+(1.-pCurd)*.65);
+          vec3 c=CP[i]*spread;
+          c+=.07*vec3(sin(gT*.8+fi*1.3),cos(gT*.9+fi*2.1),sin(gT*.7+fi*3.1))*pCurd*(1.-pPress);
+          curds=smin(curds,length(p-c)-rad,.24-.17*pCurd*(1.-pPress));
+        }
+      }
+      blob=mix(drop,curds,smoothstep(0.,.45,pCurd));
+      blob+=.03*sin(p.x*5.+gT*.4)*sin(p.y*4.7-gT*.3)*sin(p.z*5.3)*smoothstep(.1,.5,pCurd)*(1.-pPress);
     }
-    float blob=mix(drop,curds,smoothstep(0.,.45,pCurd));
-    blob+=.03*sin(p.x*5.+gT*.4)*sin(p.y*4.7-gT*.3)*sin(p.z*5.3)*smoothstep(.1,.5,pCurd)*(1.-pPress);
-
-    float wheel=sdRoundCyl(p,.95,.26,.1);
-    body=mix(blob,wheel,pPress);
+    body=pPress>.999?wheel:(pPress<.001?blob:mix(blob,wheel,pPress));
 
     /* спутники-капельки вокруг капли */
     float sat=1e3;
@@ -259,10 +266,8 @@ vec2 mapR(vec3 p){
   float curds=1e3;
   float spread=mix(0.,.9,pCurd)*(1.-pPress);
   for(int i=ZERO;i<6;i++){
-    float fi=float(i);
-    vec3 dir=normalize(vec3(h11(fi+1.)-.5,h11(fi+7.)-.5,h11(fi+13.)-.5)*2.+vec3(0.,0.,.0001));
-    float rad=(.32+.15*h11(fi+3.))*(1.+(1.-pCurd)*.65);
-    curds=smin(curds,length(p-dir*spread*(.55+.7*h11(fi+5.)))-rad,.24-.17*pCurd*(1.-pPress));
+    float rad=CR[i]*(1.+(1.-pCurd)*.65);
+    curds=smin(curds,length(p-CP[i]*spread)-rad,.24-.17*pCurd*(1.-pPress));
   }
   float body=mix(mix(drop,curds,smoothstep(0.,.45,pCurd)),sdRoundCyl(p,.95,.26,.1),pPress);
   vec2 res=vec2(body,1.);
@@ -733,7 +738,7 @@ uniform float uTime;
 uniform vec2 uWipe;
 uniform float uFade;
 out vec4 fragColor;
-float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
 float n2(vec2 p){
   vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
   return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y);
@@ -827,7 +832,7 @@ uniform vec2 uRes;
 uniform float uTime;
 uniform float uFade;
 out vec4 fragColor;
-float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
 float lm(vec3 c){ return dot(c,vec3(.299,.587,.114)); }
 vec3 S(vec2 uv){ return textureLod(uTex,uv,0.).rgb; }
 float L(vec2 uv){ return lm(S(uv)); }
