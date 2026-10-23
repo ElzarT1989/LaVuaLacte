@@ -21,6 +21,7 @@ export function layout(P) {
   return { scene, u, wx, wy };
 }
 
+const DBG = /debug/.test(location.search);
 export function createStage(canvas, { onReady, onFail, reduced = false, fixedTime = null, fixedScale = null } = {}) {
   const gl = canvas.getContext('webgl2', {
     antialias: false, alpha: false, depth: false, stencil: false,
@@ -45,7 +46,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
     gl.attachShader(p, vs); gl.attachShader(p, fs);
     gl.linkProgram(p);
-    return { p, vs, fs, ready: false, failed: false, u: null };
+    return { p, vs, fs, ready: false, failed: false, u: null, t0: performance.now() };
   }
   function poll(pr) {
     if (pr.ready || pr.failed) return pr.ready;
@@ -62,6 +63,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
       return false;
     }
     pr.ready = true;
+    DBG && console.log('[LVL] program ready', Math.round(performance.now() - pr.t0) + 'ms');
     const names = ['uRes', 'uTime', 'uU', 'uMouse', 'uShift', 'uTex', 'uTexRes', 'uWipe', 'uFade'];
     pr.u = {};
     for (const n of names) pr.u[n] = gl.getUniformLocation(pr.p, n);
@@ -98,7 +100,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   const S = {
     target: 0, P: 0, time: reduced ? 3 : 0, mx: 0, my: 0, tmx: 0, tmy: 0,
     scale: 0.62, maxScale: 0.85, minScale: 0.32, cw: 0, ch: 0,
-    visible: true, fade: 1, started: false, ready: false, last: 0,
+    visible: true, fade: 1, bgNext: 1, bgAt: 0, started: false, ready: false, last: 0,
     ema: 16, slow: 0, fast: 0, frames: 0, immediate: false,
   };
   const coarse = matchMedia('(pointer:coarse)').matches || innerWidth < 760;
@@ -123,7 +125,15 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     S.tmy = (e.clientY / innerHeight - 0.5) * -2;
   }, { passive: true });
 
-  gl.canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); onFail && onFail('lost'); });
+  gl.canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    console.warn('[LVL] context lost', { P: S.P, scale: S.scale });
+    /* одна попытка перезагрузки; если повторится — обычная версия без 3D */
+    let again = false;
+    try { again = !sessionStorage.getItem('lvl-retry'); sessionStorage.setItem('lvl-retry', '1'); } catch {}
+    if (again && !DBG) { location.reload(); return; }
+    onFail && onFail('lost');
+  });
 
   function drawScene(sc, lay) {
     const pr = scenes[sc];
@@ -141,8 +151,10 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     const shift = sc === 0 && wide ? 0.55 * (1 - smooth(0.04, 0.55, lay.u)) : 0;
     gl.uniform1f(pr.u.uShift, shift);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    DBG && S.frames < 3 && console.log('[LVL] scene drawn', sc, sw, sh, gl.getError());
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.generateMipmap(gl.TEXTURE_2D);
+    DBG && S.frames < 3 && console.log('[LVL] mips', gl.getError());
     return true;
   }
 
@@ -160,6 +172,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     gl.uniform2f(post.u.uWipe, lay.wx, lay.wy);
     gl.uniform1f(post.u.uFade, S.fade);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    DBG && S.frames < 3 && console.log('[LVL] post drawn', gl.getError());
   }
 
   function frame(now) {
@@ -179,11 +192,18 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     /* фоновая компиляция остальных сцен, когда готова первая */
     if (!S.ready && scenes[0] && poll(scenes[0]) && poll(post)) {
       S.ready = true;
-      for (let i = 1; i < scenes.length; i++) setTimeout(() => compileScene(i), 400 * i);
+      S.bgAt = now + 600;
       onReady && onReady();
     }
     if (!S.ready) return;
     if (S.fade > 0) S.fade = Math.max(0, S.fade - dt * 1.6);
+
+    /* остальные сцены компилируем по одной: параллельная сборка тяжёлых шейдеров вешает драйвер */
+    if (S.bgNext < scenes.length && now > S.bgAt) {
+      const pr = scenes[S.bgNext];
+      if (!pr) compileScene(S.bgNext);
+      else if (poll(pr) || pr.failed) { S.bgNext++; S.bgAt = now + 400; }
+    }
 
     /* ближайшая готовая сцена, пока нужная ещё компилируется */
     let sc = lay.scene;

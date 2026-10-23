@@ -28,6 +28,7 @@ float vnoise(vec3 x){
              mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);
 }
 float fbm(vec3 p){ float a=.5,s=0.; for(int i=0;i<4;i++){ s+=a*vnoise(p); p=p*2.03+17.1; a*=.5; } return s; }
+float fbmL(vec3 p){ return .6*vnoise(p)+.4*vnoise(p*2.03+17.1); }
 float smin(float a,float b,float k){ float h=max(k-abs(a-b),0.)/k; return min(a,b)-h*h*k*.25; }
 float smax(float a,float b,float k){ return -smin(-a,-b,k); }
 float sdRoundCyl(vec3 p,float r,float h,float rr){
@@ -74,9 +75,21 @@ vec2 march(vec3 ro,vec3 rd){
   for(int i=ZERO;i<NSTEP;i++){
     vec2 h=map(ro+rd*t);
     id=h.y;
-    if(h.x<.0006*t+.0004) break;
-    t+=max(h.x*STEP,.0025*t);
+    if(h.x<.0011*t+.0008) break;
+    t+=max(h.x*STEP,.003*t);
     if(t>TMAX) return vec2(t,-1.);
+  }
+  return vec2(t,id);
+}
+/* укороченный марш для отражений: там детали не нужны */
+vec2 marchR(vec3 ro,vec3 rd){
+  float t=0.; float id=-1.;
+  for(int i=ZERO;i<36;i++){
+    vec2 h=mapR(ro+rd*t);
+    id=h.y;
+    if(h.x<.004*t+.003) break;
+    t+=max(h.x*.9,.02*t);
+    if(t>TMAX*.5) return vec2(t,-1.);
   }
   return vec2(t,id);
 }
@@ -89,21 +102,30 @@ vec3 calcN(vec3 p,float t){
   }
   return normalize(n);
 }
+vec3 calcNR(vec3 p,float t){
+  vec3 n=vec3(0.);
+  float eps=.004+t*.002;
+  for(int i=ZERO;i<4;i++){
+    vec3 e=.5773*(2.*vec3(float(((i+3)>>1)&1),float((i>>1)&1),float(i&1))-1.);
+    n+=e*mapR(p+e*eps).x;
+  }
+  return normalize(n);
+}
 float calcAO(vec3 p,vec3 n){
   float o=0.,s=1.;
-  for(int i=ZERO;i<5;i++){
-    float h=.02+.1*float(i+1);
+  for(int i=ZERO;i<3;i++){
+    float h=.03+.16*float(i+1);
     float d=map(p+n*h).x;
-    o+=(h-d)*s; s*=.72;
+    o+=(h-d)*s; s*=.6;
   }
-  return clamp(1.-1.7*o,0.,1.);
+  return clamp(1.-1.5*o,0.,1.);
 }
 float calcShadow(vec3 ro,vec3 rd,float mint,float maxt,float k){
   float res=1.,t=mint;
-  for(int i=ZERO;i<22;i++){
+  for(int i=ZERO;i<14;i++){
     float h=map(ro+rd*t).x;
     res=min(res,k*h/t);
-    t+=clamp(h,.015,.5);
+    t+=clamp(h,.03,.7);
     if(res<.003||t>maxt) break;
   }
   res=clamp(res,0.,1.);
@@ -114,7 +136,7 @@ vec3 lighting(vec3 p,vec3 n,vec3 rd,vec3 alb,float rough,float specAmt,float sss
   vec3 v=-rd;
   vec3 L=normalize(vec3(-.55,.68,.48));
   float ndl=dot(n,L);
-  float sh=calcShadow(p+n*.004,L,.02,7.,9.);
+  float sh=calcShadow(p+n*.012,L,.04,7.,9.);
   float ao=calcAO(p,n);
   vec3 col=alb*vec3(1.,.94,.86)*max(ndl,0.)*sh*1.9;
   vec3 amb=mix(vec3(.05,.035,.1),vec3(.26,.21,.38),n.y*.5+.5);
@@ -152,81 +174,14 @@ void main(){
     col=shade(p,n,rd,h.y,h.x);
     col=mix(bg,col,exp(-FOG*h.x*h.x));
   }
-  fragColor=vec4(col,1.);
+  if(any(isnan(col))||any(isinf(col))) col=bg;
+  fragColor=vec4(min(col,vec3(24.)),1.);
 }
 `;
 
-/* ---------- Сцена 0: молочная струя и всплеск ---------- */
-const POUR_MAP = `
-#define NSTEP 130
-#define TMAX 45.
-#define STEP .78
-#define FOG .0085
-vec2 map(vec3 p){
-  float t=gT;
-  float r=length(p.xz);
-  float e=smoothstep(.5,1.4,r)*exp(-r*.3);
-  float h=sin(r*6.5-t*3.2)*.05*e+sin(r*13.5-t*6.1+1.3)*.014*e+sin(r*3.1-t*1.4)*.035*e;
-  h+=.15*exp(-r*r*5.)*(.8+.2*sin(t*5.3));
-  float d=(p.y-h)*.7;
-
-  float y=p.y;
-  vec2 sway=vec2(sin(t*.9+y*.6),cos(t*.7+y*.5))*.012*(y*.5+.3);
-  float sr=.21+.05*smoothstep(0.,5.,y)+.012*sin(y*8.-t*10.)+.006*sin(y*21.-t*17.);
-  float stream=length(p.xz-sway)-sr;
-  d=smin(d,stream,.3);
-
-  if(r<4.2&&y<4.){
-    float ang=atan(p.z,p.x);
-    for(int k=ZERO;k<2;k++){
-      float ph=fract(t*.42+float(k)*.5);
-      float cr=.42+1.0*ph;
-      float ch=.02+.24*(1.-ph)*(1.-ph)+.02;
-      float sp=.5+.5*sin(ang*10.+float(k)*2.+t*.7+3.*vnoise(vec3(ang*1.6,t*.4+float(k)*5.,0.)));
-      sp*=sp*(1.-ph);
-      float ring=length(vec2(r-cr,(p.y-ch)*(1.-.55*sp)))-(.012+.05*(1.-ph)+.035*sp);
-      d=smin(d,ring,.12);
-    }
-    for(int i=ZERO;i<9;i++){
-      float fi=float(i);
-      float hh=h11(fi+3.7);
-      float per=1.1+hh*.9;
-      float cyc=t/per+hh*7.1;
-      float tau=fract(cyc);
-      float a=h11(fi*1.7+.3+floor(cyc)*3.1)*6.2831;
-      float sp2=.8+1.4*h11(fi+9.1);
-      float vy=1.7+1.7*h11(fi+5.3);
-      vec3 c=vec3(cos(a),0.,sin(a))*(.4+sp2*tau*.9);
-      c.y=.05+vy*tau-3.4*tau*tau;
-      float rr=(.026+.03*h11(fi+1.1))*(1.-.25*tau);
-      d=smin(d,length(p-c)-rr,.07);
-    }
-  }
-  return vec2(d,1.);
-}`;
-
-const POUR_LOOK = `
-void camera(out vec3 ro,out vec3 ta,out float fov){
-  float u=smoothstep(0.,1.,uU);
-  float a=.3+uU*.9+uMouse.x*.22;
-  float R=mix(5.2,2.5,u);
-  float cy=mix(.85,.3,u)+uMouse.y*.12;
-  ro=vec3(sin(a)*R,cy,cos(a)*R);
-  ta=vec3(0.,mix(1.35,.32,u),0.);
-  fov=1.7;
-}
-vec3 background(vec3 rd){
-  vec3 c=mix(vec3(.012,.008,.028),vec3(.05,.03,.1),smoothstep(-.1,.8,rd.y));
-  c+=vec3(.9,.78,.7)*pow(max(dot(rd,normalize(vec3(-.4,.75,-.3))),0.),48.)*.12;
-  return c;
-}
-vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
-  return lighting(p,n,rd,vec3(.96,.94,.9),.16,1.,1.);
-}`;
-
 /* ---------- Сцена 1: капля → творог → пресс → головка сыра ---------- */
 const OBJ_MAP = `
-#define NSTEP 110
+#define NSTEP 84
 #define TMAX 20.
 #define STEP .7
 #define FOG .006
@@ -250,7 +205,7 @@ vec2 map(vec3 p){
     curds=smin(curds,length(p-c)-rad,.24-.17*pCurd*(1.-pPress));
   }
   float blob=mix(drop,curds,smoothstep(0.,.45,pCurd));
-  blob+=.05*(fbm(p*3.+gT*.15)-.5)*smoothstep(.1,.5,pCurd)*(1.-pPress);
+  blob+=.03*sin(p.x*5.+gT*.4)*sin(p.y*4.7-gT*.3)*sin(p.z*5.3)*smoothstep(.1,.5,pCurd)*(1.-pPress);
 
   float wheel=sdRoundCyl(p,.95,.26,.1);
   float body=mix(blob,wheel,pPress);
@@ -278,11 +233,31 @@ vec2 map(vec3 p){
   }
   float hoopA=smoothstep(.40,.50,u)*(1.-smoothstep(.72,.82,u));
   if(hoopA>.005){
-    float hr=1.0+(1.-hoopA)*1.4;
-    float hoop=max(abs(length(p.xz)-hr)-.05,abs(p.y-(1.-hoopA)*.8)-.22);
+    float hr=1.0+(1.-hoopA)*.3;
+    float hoop=max(abs(length(p.xz)-hr)-.05,abs(p.y-(1.-hoopA)*2.6)-.22);
     res=opU(res,vec2(hoop,2.));
   }
   res=opU(res,vec2(dFloor,3.));
+  return res;
+}
+/* упрощённая карта для отражений в полу */
+vec2 mapR(vec3 p){
+  float u=uU;
+  float pCurd=smoothstep(.14,.40,u);
+  float pPress=smoothstep(.46,.70,u);
+  float drop=length(p*vec3(1.,.93,1.))-.92;
+  float curds=1e3;
+  float spread=mix(0.,.9,pCurd)*(1.-pPress);
+  for(int i=ZERO;i<6;i++){
+    float fi=float(i);
+    vec3 dir=normalize(vec3(h11(fi+1.)-.5,h11(fi+7.)-.5,h11(fi+13.)-.5)*2.+vec3(0.,0.,.0001));
+    float rad=(.32+.15*h11(fi+3.))*(1.+(1.-pCurd)*.65);
+    curds=smin(curds,length(p-dir*spread*(.55+.7*h11(fi+5.)))-rad,.24-.17*pCurd*(1.-pPress));
+  }
+  float body=mix(mix(drop,curds,smoothstep(0.,.45,pCurd)),sdRoundCyl(p,.95,.26,.1),pPress);
+  vec2 res=vec2(body,1.);
+  float plateUp=smoothstep(.46,.60,u)*(1.-smoothstep(.70,.80,u));
+  if(plateUp>.005) res=opU(res,vec2(sdRoundCyl(p-vec3(0.,mix(2.4,.34,plateUp),0.),1.12,.07,.035),2.));
   return res;
 }`;
 
@@ -312,7 +287,7 @@ vec3 bodyCol(vec3 p,vec3 n,out float rough,out float spec,out float sss){
   vec3 gold=vec3(.97,.73,.27);
   vec3 rind=vec3(.66,.38,.14);
   vec3 ch=mix(gold,rind,side*.9);
-  ch*=.8+.4*fbm(p*6.+3.);
+  ch*=.8+.4*fbmL(p*6.+3.);
   c=mix(c,ch,pAge);
   rough=mix(.16,.5,smoothstep(.2,.9,u));
   spec=mix(1.,.55,pAge);
@@ -320,41 +295,39 @@ vec3 bodyCol(vec3 p,vec3 n,out float rough,out float spec,out float sss){
   return c;
 }
 vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
-  if(id<1.5){
-    float ro_,sp,ss;
-    vec3 alb=bodyCol(p,n,ro_,sp,ss);
-    return lighting(p,n,rd,alb,ro_,sp,ss);
-  }
-  if(id<2.5){
+  if(id>1.5&&id<2.5){
     vec3 alb=vec3(.78,.76,.8);
     vec3 r=reflect(rd,n);
     float ao=calcAO(p,n);
     float fr=pow(1.-max(dot(n,-rd),0.),3.);
-    vec3 c=alb*.1+env(r)*alb*mix(.7,1.,ao)*1.55+vec3(.5,.36,.2)*fr*.4;
-    return c;
+    return alb*.1+env(r)*alb*mix(.7,1.,ao)*1.55+vec3(.5,.36,.2)*fr*.4;
   }
-  /* пол */
-  float rr=length(p.xz);
+  bool isFloor=id>2.5;
+  float ro_=.6,sp=.45,ss=0.;
   vec3 alb=vec3(.035,.026,.06);
-  float fade=exp(-rr*rr*.045);
-  vec3 col=lighting(p,n,rd,alb,.6,.45,0.);
-  /* отражение предмета в полу */
-  vec3 rdr=reflect(rd,n);
-  vec2 hr=march(p+n*.01,rdr);
-  if(hr.y>0.&&hr.y<2.5){
-    vec3 pp=p+n*.01+rdr*hr.x;
-    vec3 nn=calcN(pp,hr.x);
-    float ro_,sp,ss;
-    vec3 a2=hr.y<1.5?bodyCol(pp,nn,ro_,sp,ss):vec3(.62,.64,.7);
-    vec3 rc=a2*(env(reflect(rdr,nn))*.5+vec3(.18,.15,.25));
-    col=mix(col,rc,.55*pow(1.-max(dot(n,-rd),0.),1.6)+.18);
+  if(!isFloor) alb=bodyCol(p,n,ro_,sp,ss);
+  vec3 col=lighting(p,n,rd,alb,ro_,sp,ss);
+  if(isFloor){
+    float rr=length(p.xz);
+    float fade=exp(-rr*rr*.045);
+    /* отражение предмета в полу */
+    vec3 rdr=reflect(rd,n);
+    vec2 hr=marchR(p+n*.01,rdr);
+    if(hr.y>0.&&hr.y<2.5){
+      vec3 pp=p+n*.01+rdr*hr.x;
+      vec3 nn=calcNR(pp,hr.x);
+      vec3 a2=hr.y<1.5?mix(vec3(.96,.93,.8),vec3(.8,.55,.25),smoothstep(.55,.9,uU)):vec3(.62,.64,.7);
+      vec3 rc=a2*(env(reflect(rdr,nn))*.5+vec3(.18,.15,.25));
+      col=mix(col,rc,.55*pow(1.-max(dot(n,-rd),0.),1.6)+.18);
+    }
+    col*=mix(.25,1.,fade);
   }
-  return col*mix(.25,1.,fade);
+  return col;
 }`;
 
 /* ---------- Сцена 2: погреб созревания ---------- */
 const CELLAR_MAP = `
-#define NSTEP 110
+#define NSTEP 84
 #define TMAX 36.
 #define STEP .8
 #define FOG .006
@@ -389,7 +362,8 @@ vec2 map(vec3 p){
   post=max(post,abs(p.y-1.3)-1.3);
   res=opU(res,vec2(post,5.));
   return res;
-}`;
+}
+vec2 mapR(vec3 p){ return map(p); }`;
 
 const CELLAR_LOOK = `
 void camera(out vec3 ro,out vec3 ta,out float fov){
@@ -436,7 +410,7 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
 
 /* ---------- Сцена 3: витрина продукции ---------- */
 const PROD_MAP = `
-#define NSTEP 110
+#define NSTEP 84
 #define TMAX 30.
 #define STEP .8
 #define FOG .003
@@ -491,7 +465,7 @@ vec2 butter(vec3 p){
   float blk=sdRoundBox(q-vec3(.1,0.,0.),vec3(.55,.2,.33),.035);
   vec2 r=vec2(blk,13.);
   vec3 f=q-vec3(-.55,0.,0.);
-  float foil=sdRoundBox(f,vec3(.42,.213,.348),.05)+.012*sin(f.y*30.+f.z*20.)*sin(f.x*26.)+.01*fbm(f*9.);
+  float foil=sdRoundBox(f,vec3(.42,.213,.348),.05)+.012*sin(f.y*30.+f.z*20.)*sin(f.x*26.)+.008*sin(f.x*37.+f.z*23.)*sin(f.y*29.);
   foil=max(foil,-(q.x-.18));
   r=opU(r,vec2(foil,14.));
   float sl=sdRoundBox(q-vec3(.95,-.0,.78),vec3(.04,.2,.33),.02);
@@ -507,7 +481,7 @@ vec2 bowl(vec3 p){
   b=min(b,sdRoundCyl(p-vec3(0.,.04,0.),.24,.04,.02));
   vec2 r=vec2(b,15.);
   float mound=length((q-vec3(0.,.12,0.))*vec3(1.,1.55,1.))-.54;
-  mound+=.02*(fbm(q*8.)-.5);
+  mound+=.012*sin(q.x*21.)*sin(q.y*19.)*sin(q.z*23.);
   r=opU(r,vec2(mound,16.));
   for(int i=ZERO;i<3;i++){
     float fi=float(i);
@@ -529,6 +503,15 @@ vec2 map(vec3 p){
   if(b<.2) res=opU(res,butter(p-c3)); else res.x=min(res.x,b);
   b=length(p-c4-vec3(0.,.6,0.))-.95;
   if(b<.2) res=opU(res,bowl(p-c4)); else res.x=min(res.x,b);
+  return res;
+}
+/* упрощённая карта для отражений в полу */
+vec2 mapR(vec3 p){
+  vec2 res=vec2(1e3,0.);
+  res=opU(res,vec2(sdRoundCyl(p-vec3(-3.9,.32,0.),.9,.32,.05),10.));
+  res=opU(res,vec2(sdRoundCyl(p-vec3(-1.3,.52,0.),.42,.5,.12),11.));
+  res=opU(res,vec2(sdRoundBox(p-vec3(1.4,.2,0.),vec3(.55,.2,.33),.035),13.));
+  res=opU(res,vec2(length((p-vec3(3.9,.58,0.))*vec3(1.,1.15,1.))-.62,15.));
   return res;
 }`;
 
@@ -553,8 +536,8 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
   if(id<10.5){
     vec3 q=p;
     float cutFace=1.-smoothstep(.3,.8,abs(n.y));
-    vec3 body=vec3(.98,.78,.3)*(.85+.3*fbm(q*9.));
-    vec3 rind=vec3(.6,.34,.12)*(.8+.4*fbm(q*7.));
+    vec3 body=vec3(.98,.78,.3)*(.85+.3*fbmL(q*9.));
+    vec3 rind=vec3(.6,.34,.12)*(.8+.4*fbmL(q*7.));
     float r=length(p.xz);
     vec3 col=mix(body,rind,smoothstep(.25,.85,abs(n.y))*0.0+cutFace*0.75);
     rough=.5; spec=.5; sss=.5;
@@ -573,7 +556,7 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
   }
   if(id<12.5){ rough=.28; spec=1.; return vec3(.9,.66,.24); }
   if(id<13.5){ rough=.3; spec=.7; sss=.6; return vec3(.98,.86,.45); }
-  if(id<14.5){ rough=.25; spec=1.; return vec3(.78,.74,.62)*(.8+.4*fbm(p*20.)); }
+  if(id<14.5){ rough=.25; spec=1.; return vec3(.78,.74,.62)*(.8+.4*fbmL(p*20.)); }
   if(id<15.5){ rough=.2; spec=.9; return vec3(.93,.92,.95); }
   if(id<16.5){ rough=.4; spec=.5; sss=.9; return vec3(.97,.95,.9); }
   rough=.15; spec=1.; return vec3(.5,.04,.1);
@@ -584,12 +567,11 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
   vec3 col=lighting(p,n,rd,alb,rough,spec,sss);
   if(id<3.5){
     vec3 rdr=reflect(rd,n);
-    vec2 hr=march(p+n*.01,rdr);
+    vec2 hr=marchR(p+n*.01,rdr);
     if(hr.y>3.5){
       vec3 pp=p+n*.01+rdr*hr.x;
-      vec3 nn=calcN(pp,hr.x);
-      float r2,s2,ss2;
-      vec3 a2=matColor(pp,nn,hr.y,r2,s2,ss2);
+      vec3 nn=calcNR(pp,hr.x);
+      vec3 a2=hr.y<10.5?vec3(.9,.7,.3):hr.y<11.5?vec3(.9,.88,.92):hr.y<13.5?vec3(.98,.86,.45):vec3(.93,.92,.95);
       vec3 rc=a2*(env(reflect(rdr,nn))*.45+vec3(.2,.16,.26));
       col=mix(col,rc,.5*pow(1.-max(dot(n,-rd),0.),1.4)+.14);
     }
@@ -598,10 +580,103 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
   return col;
 }`;
 
+/* ---------- Сцена 0: текучее молоко (карта высот, без рэймарчинга по SDF) ---------- */
+const FLOW = HEAD + `
+vec2 gC;
+float H(vec2 p){
+  float t=gT;
+  vec2 d=p-gC;
+  float r=length(d);
+  /* воронка: чем ближе к центру, тем сильнее закрутка; прокрутка добавляет оборотов */
+  float tw=(1.3+2.4*uU)*exp(-r*.34)+.3*sin(t*.17);
+  d=rot(tw)*d;
+  vec2 w=gC+d;
+  w.x+=t*.20;
+  for(int i=ZERO;i<4;i++){
+    float fi=float(i);
+    w+=vec2(sin(w.y*1.25+t*.29+fi*1.9),sin(w.x*1.05-t*.23+fi*2.7))*.55;
+  }
+  float h=.52*sin(w.x*1.15+w.y*.5)+.3*sin(w.y*1.7-w.x*.8+1.3)+.1*sin(length(w)*3.1-t*.7);
+  h-=.4*exp(-r*r*.1)*(.55+.45*uU);
+  return h*.55;
+}
+void main(){
+  gT=uTime;
+  vec2 uv=(2.*gl_FragCoord.xy-uRes)/uRes.y;
+  uv.x-=uShift;
+  float s=smoothstep(0.,1.,uU);
+  vec3 ro=vec3(uMouse.x*.25,mix(2.3,1.15,s)+uMouse.y*.1,-3.2+uU*2.2);
+  vec3 ta=vec3(0.,0.,ro.z+mix(3.4,2.6,s));
+  gC=vec2(.8-.6*uU,ro.z+4.6);
+  vec3 ww=normalize(ta-ro);
+  vec3 uu=normalize(cross(ww,vec3(0,1,0)));
+  vec3 vv=cross(uu,ww);
+  vec3 rd=normalize(uv.x*uu+uv.y*vv+1.55*ww);
+
+  vec3 sky=mix(vec3(.02,.014,.05),vec3(.07,.045,.14),smoothstep(-.1,.5,rd.y));
+  vec3 col=sky;
+  float tt=-1.;
+  if(rd.y<-.0001){
+    float t0=max((ro.y-.58)/-rd.y,0.);
+    float t1=min((ro.y+.85)/-rd.y,38.);
+    float t=t0, tp=t0, hp=0.;
+    for(int i=ZERO;i<72;i++){
+      vec3 p=ro+rd*t;
+      float h=H(p.xz);
+      float dy=p.y-h;
+      if(dy<.0015*t+.002){ tt=t; break; }
+      tp=t; hp=dy;
+      t+=max(dy*.45,.0035*t);
+      if(t>t1) break;
+    }
+    if(tt<0.&&t<t1) tt=t;
+    if(tt>0.){
+      /* уточнение: середина между последним «над» и первым «под» */
+      for(int i=ZERO;i<3;i++){
+        float tm=.5*(tp+tt);
+        vec3 pm=ro+rd*tm;
+        if(pm.y>H(pm.xz)) tp=tm; else tt=tm;
+      }
+    }
+  }
+  if(tt>0.){
+    vec3 p=ro+rd*tt;
+    float hh=H(p.xz);
+    float e=.02+tt*.004;
+    vec3 n=normalize(vec3(H(p.xz-vec2(e,0.))-H(p.xz+vec2(e,0.)),2.*e,H(p.xz-vec2(0.,e))-H(p.xz+vec2(0.,e))));
+    vec3 v=-rd;
+    vec3 L=normalize(vec3(-.55,.68,.48));
+    float ndl=dot(n,L);
+    float hn=smoothstep(-.45,.3,hh);
+    float wr=clamp((ndl+.45)/1.45,0.,1.);
+    /* самотень от гребней: короткий марш к свету по карте высот */
+    float sh=1.;
+    for(int i=ZERO;i<9;i++){
+      float ds=.12+float(i)*.16;
+      vec3 q=p+L*ds;
+      sh=min(sh,clamp((q.y-H(q.xz))*5./ds+.25,0.,1.));
+    }
+    sh=sh*sh*(3.-2.*sh);
+    vec3 alb=vec3(.95,.92,.86);
+    vec3 c=alb*vec3(1.,.9,.8)*wr*wr*mix(.15,1.,sh)*1.2;
+    c+=alb*mix(vec3(.025,.018,.06),vec3(.15,.11,.27),n.y*.5+.5)*mix(.25,1.,hn)*mix(.6,1.,sh);
+    c+=alb*vec3(.4,.34,.95)*max(dot(n,normalize(vec3(.85,.25,.15))),0.)*.5*mix(.5,1.,sh);
+    c+=alb*vec3(1.,.66,.4)*(1.-hn)*wr*sh*.28;
+    float fr=pow(1.-max(dot(n,v),0.),5.);
+    vec3 r=reflect(rd,n);
+    vec3 re=env(r)*mix(.4,1.,hn)*mix(.4,1.,sh)+env(normalize(r+n*.35))*.2;
+    float F=.1+fr*.85;
+    c=c*(1.-F)+re*F;
+    col=mix(sky,c,exp(-tt*tt*.0022));
+  }
+  if(any(isnan(col))||any(isinf(col))) col=sky;
+  fragColor=vec4(min(col,vec3(24.)),1.);
+}`;
+
 const scene = (map, look) => HEAD + map + TOOLS + look + MAIN;
 
 export const SCENES = [
-  scene(POUR_MAP, POUR_LOOK),
+  FLOW,
   scene(OBJ_MAP, OBJ_LOOK),
   scene(CELLAR_MAP, CELLAR_LOOK),
   scene(PROD_MAP, PROD_LOOK),
