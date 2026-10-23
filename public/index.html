@@ -1,14 +1,19 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ky">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Ля Вуа Лакте — молочный завод, Бишкек</title>
-  <meta name="description" content="Ля Вуа Лакте (Токтогул сүт) — молочный завод в Бишкеке. Сыры, йогурты, сливочное масло, творог и другие натуральные молочные продукты.">
+  <title>Ля Вуа Лакте — сүт заводу, Бишкек</title>
+  <meta name="description" content="Ля Вуа Лакте (Токтогул сүт) — Бишкектеги сүт заводу. Быштак, йогурт, сары май, сүзмө жана башка табигый сүт азыктары.">
   <meta name="theme-color" content="#1d150e">
-  <meta property="og:title" content="Ля Вуа Лакте — молочный завод">
-  <meta property="og:description" content="Натуральные молочные продукты: сыры, йогурты, масло, творог. Бишкек.">
+  <meta property="og:title" content="Ля Вуа Лакте — сүт заводу">
+  <meta property="og:description" content="Табигый сүт азыктары: быштак, йогурт, май, сүзмө. Бишкек.">
   <meta property="og:type" content="website">
+  <link rel="alternate" hreflang="ky" href="/?lang=ky">
+  <link rel="alternate" hreflang="ru" href="/?lang=ru">
+  <link rel="alternate" hreflang="fr" href="/?lang=fr">
+  <link rel="alternate" hreflang="en" href="/?lang=en">
+  <link rel="alternate" hreflang="x-default" href="/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,137 +21,144 @@
   <link rel="stylesheet" href="/site.css">
   <link rel="modulepreload" href="/js/stage.js">
   <link rel="modulepreload" href="/js/shaders.js">
+  <link rel="modulepreload" href="/js/i18n.js">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"Organization","name":"Ля Вуа Лакте","alternateName":"Токтогул сүт","description":"Молочный завод: сыры, йогурты, сливочное масло, творог.","foundingDate":"2018-01-18","address":{"@type":"PostalAddress","addressLocality":"Бишкек","streetAddress":"ул. Панфилова, 134","addressCountry":"KG"},"telephone":"+996700309610","sameAs":["https://www.instagram.com/toktogul_sut/"]}
+  {"@context":"https://schema.org","@type":"Organization","name":"Ля Вуа Лакте","alternateName":["Токтогул сүт","La Voie Lactée"],"description":"Сүт заводу: быштак, йогурт, сары май, сүзмө.","foundingDate":"2018-01-18","address":{"@type":"PostalAddress","addressLocality":"Бишкек","streetAddress":"ул. Панфилова, 134","addressCountry":"KG"},"telephone":"+996700309610","sameAs":["https://www.instagram.com/toktogul_sut/"]}
   </script>
 </head>
 <body>
-  <div id="loader" aria-hidden="true"><span>Ля Вуа Лакте</span></div>
+  <div id="loader" aria-hidden="true"><span data-i18n="brand">Ля Вуа Лакте</span></div>
 
   <header class="top">
-    <a class="brand" href="#story" aria-label="Ля Вуа Лакте — наверх">
-      <span class="brand-name">Ля Вуа Лакте</span>
-      <span class="brand-sub">Токтогул сүт</span>
+    <a class="brand" href="#story" data-i18n-aria="ariaTop" aria-label="Ля Вуа Лакте — жогору">
+      <span class="brand-name" data-i18n="brand">Ля Вуа Лакте</span>
+      <span class="brand-sub" data-i18n="brandSub">Токтогул сүт</span>
     </a>
-    <nav class="nav" id="nav" aria-label="Разделы">
-      <a href="#story">Путь молока</a>
-      <a href="#about">О заводе</a>
-      <a href="#products">Продукция</a>
-      <a href="#contacts">Контакты</a>
-      <a class="pill" data-wa="Здравствуйте! Хочу узнать про продукцию «Ля Вуа Лакте»." href="https://wa.me/996700309610">WhatsApp</a>
+    <nav class="nav" id="nav" data-i18n-aria="ariaNav" aria-label="Бөлүмдөр">
+      <a href="#story" data-i18n="navStory">Сүттүн жолу</a>
+      <a href="#about" data-i18n="navAbout">Завод жөнүндө</a>
+      <a href="#products" data-i18n="navProducts">Продукция</a>
+      <a href="#contacts" data-i18n="navContacts">Байланыш</a>
+      <a class="pill" data-wa="waHello" href="https://wa.me/996700309610">WhatsApp</a>
     </nav>
-    <button class="burger" id="burger" aria-label="Меню" aria-expanded="false" aria-controls="nav"><i></i><i></i></button>
+    <div class="lang" role="group" data-i18n-aria="ariaLang" aria-label="Тил">
+      <button type="button" data-lang="ky">KY</button>
+      <button type="button" data-lang="ru">RU</button>
+      <button type="button" data-lang="fr">FR</button>
+      <button type="button" data-lang="en">EN</button>
+    </div>
+    <button class="burger" id="burger" data-i18n-aria="ariaMenu" aria-label="Меню" aria-expanded="false" aria-controls="nav"><i></i><i></i></button>
   </header>
 
   <main>
-    <section id="story" class="story" aria-label="Путь молока: от молока до сыра">
+    <section id="story" class="story" data-i18n-aria="ariaStory" aria-label="Сүттүн жолу: сүттөн быштакка чейин">
       <div class="stage">
         <canvas id="gl" aria-hidden="true"></canvas>
         <div class="scrim"></div>
 
         <div class="overlay">
           <div class="chapter hero" data-a="-1" data-b="0.085" data-f="0.02">
-            <p class="eyebrow">Бишкек · с 2018 года</p>
-            <h1>Молоко,<br><em>которое становится</em><br>вкусом</h1>
-            <p class="lead">Ля Вуа Лакте — молочный завод. Сыры, йогурты, масло и творог из натурального молока.</p>
+            <p class="eyebrow" data-i18n="heroEyebrow">Бишкек · 2018-жылдан бери</p>
+            <h1 data-i18n="heroH1">Даамга<br><em>айланган</em><br>сүт</h1>
+            <p class="lead" data-i18n="heroLead">Ля Вуа Лакте — сүт заводу. Табигый сүттөн жасалган быштак, йогурт, сары май жана сүзмө.</p>
             <div class="cta">
-              <a class="btn" data-wa="Здравствуйте! Хочу заказать продукцию «Ля Вуа Лакте»." href="https://wa.me/996700309610">Заказать в WhatsApp</a>
-              <a class="btn ghost" href="#about">О заводе</a>
+              <a class="btn" data-wa="waOrder" data-i18n="ctaOrder" href="https://wa.me/996700309610">WhatsApp аркылуу буйрутма</a>
+              <a class="btn ghost" href="#about" data-i18n="ctaAbout">Завод жөнүндө</a>
             </div>
           </div>
 
           <div class="chapter" data-a="0.09" data-b="0.17">
-            <p class="eyebrow"><b>01</b> Молоко</p>
-            <h2>Всё начинается<br>с одной струи</h2>
-            <p>Свежее молоко приходит на завод — белое, плотное, живое. Дальше ему предстоит стать чем-то большим.</p>
+            <p class="eyebrow"><b>01</b> <span data-i18n="c1e">Сүт</span></p>
+            <h2 data-i18n="c1h">Баары бир<br>агымдан башталат</h2>
+            <p data-i18n="c1p">Жаңы саалган сүт заводго келет — ак, коюу, тирүү. Мындан ары ал чоң нерсеге айланышы керек.</p>
           </div>
 
           <div class="chapter" data-a="0.225" data-b="0.325">
-            <p class="eyebrow"><b>02</b> Свёртывание</p>
-            <h2>Капля становится<br>сгустком</h2>
-            <p>Молоко превращается в творожное зерно — основу будущих сыров и творога.</p>
+            <p class="eyebrow"><b>02</b> <span data-i18n="c2e">Уюу</span></p>
+            <h2 data-i18n="c2h">Тамчы<br>уймакка айланат</h2>
+            <p data-i18n="c2p">Сүт сүзмөнүн данына айланат — келечектеги быштактын жана сүзмөнүн негизи.</p>
           </div>
 
           <div class="chapter" data-a="0.335" data-b="0.44">
-            <p class="eyebrow"><b>03</b> Формовка</p>
-            <h2>Пресс. Форма.<br>Золотая корка</h2>
-            <p>Масса уплотняется под прессом и принимает форму головки.</p>
+            <p class="eyebrow"><b>03</b> <span data-i18n="c3e">Калыптоо</span></p>
+            <h2 data-i18n="c3h">Пресс. Калып.<br>Алтын кабык</h2>
+            <p data-i18n="c3p">Масса пресстин астында тыгыздалып, баштын формасын алат.</p>
           </div>
 
           <div class="chapter" data-a="0.505" data-b="0.655">
-            <p class="eyebrow"><b>04</b> Созревание</p>
-            <h2>Тишина,<br>прохлада и время</h2>
-            <p>В погребе головки набирают вкус. Торопиться здесь некуда.</p>
+            <p class="eyebrow"><b>04</b> <span data-i18n="c4e">Бышуу</span></p>
+            <h2 data-i18n="c4h">Тынчтык,<br>салкындык жана убакыт</h2>
+            <p data-i18n="c4p">Жертөлөдө баштар даамын топтойт. Бул жерде шашуунун кереги жок.</p>
           </div>
 
           <div class="chapter cap" data-a="0.713" data-b="0.768" data-f="0.012">
-            <p class="eyebrow"><b>05</b> Продукция</p>
-            <h2>Сыры</h2>
-            <p>От свежих до выдержанных — на столе и к чаю.</p>
+            <p class="eyebrow"><b>05</b> <span data-i18n="c5e">Продукция</span></p>
+            <h2 data-i18n="cap1h">Быштактар</h2>
+            <p data-i18n="cap1p">Жаңысынан бышканына чейин — дасторконго жана чайга.</p>
           </div>
           <div class="chapter cap" data-a="0.785" data-b="0.84" data-f="0.012">
-            <p class="eyebrow"><b>05</b> Продукция</p>
-            <h2>Йогурты</h2>
-            <p>Нежная текстура, чистый молочный вкус.</p>
+            <p class="eyebrow"><b>05</b> <span data-i18n="c5e">Продукция</span></p>
+            <h2 data-i18n="cap2h">Йогурттар</h2>
+            <p data-i18n="cap2p">Назик түзүлүш, таза сүт даамы.</p>
           </div>
           <div class="chapter cap" data-a="0.858" data-b="0.913" data-f="0.012">
-            <p class="eyebrow"><b>05</b> Продукция</p>
-            <h2>Сливочное масло</h2>
-            <p>Густой вкус сливок — на хлеб и в выпечку.</p>
+            <p class="eyebrow"><b>05</b> <span data-i18n="c5e">Продукция</span></p>
+            <h2 data-i18n="cap3h">Сары май</h2>
+            <p data-i18n="cap3p">Каймактын коюу даамы — нанга жана бышырууга.</p>
           </div>
           <div class="chapter cap" data-a="0.931" data-b="1.2" data-f="0.012">
-            <p class="eyebrow"><b>05</b> Продукция</p>
-            <h2>Творог</h2>
-            <p>И другие молочные продукты — спрашивайте, что есть сегодня.</p>
+            <p class="eyebrow"><b>05</b> <span data-i18n="c5e">Продукция</span></p>
+            <h2 data-i18n="cap4h">Сүзмө</h2>
+            <p data-i18n="cap4p">Жана башка сүт азыктары — бүгүн эмне бар экенин сураңыз.</p>
           </div>
         </div>
 
-        <nav class="rail" aria-label="Этапы">
-          <a href="#story" data-p="0" class="on"><i></i><span>Молоко</span></a>
-          <a href="#story" data-p="0.21"><i></i><span>Сыр</span></a>
-          <a href="#story" data-p="0.49"><i></i><span>Созревание</span></a>
-          <a href="#story" data-p="0.71"><i></i><span>Продукция</span></a>
+        <nav class="rail" data-i18n-aria="ariaRail" aria-label="Этаптар">
+          <a href="#story" data-p="0" class="on"><i></i><span data-i18n="rail1">Сүт</span></a>
+          <a href="#story" data-p="0.21"><i></i><span data-i18n="rail2">Быштак</span></a>
+          <a href="#story" data-p="0.49"><i></i><span data-i18n="rail3">Бышуу</span></a>
+          <a href="#story" data-p="0.71"><i></i><span data-i18n="rail4">Продукция</span></a>
         </nav>
-        <div class="scroll-hint" aria-hidden="true"><span>Прокрутите</span><i></i></div>
+        <div class="scroll-hint" aria-hidden="true"><span data-i18n="hint">Ылдый жылдырыңыз</span><i></i></div>
       </div>
     </section>
 
     <section id="about" class="about">
       <div class="wrap">
-        <p class="eyebrow reveal">О заводе</p>
-        <p class="statement" id="lit">Мы делаем молочные продукты из натурального молока — сыры, йогурты, масло и творог — для тех, кто привык различать настоящий вкус.</p>
+        <p class="eyebrow reveal" data-i18n="aboutEyebrow">Завод жөнүндө</p>
+        <p class="statement" id="lit" data-i18n="statement">Биз табигый сүттөн сүт азыктарын жасайбыз — быштак, йогурт, май жана сүзмө — чыныгы даамды айырмалоого көнгөндөр үчүн.</p>
         <dl class="facts reveal">
-          <div><dt>2018</dt><dd>год основания</dd></div>
-          <div><dt>Бишкек</dt><dd>Кыргызстан</dd></div>
-          <div><dt>4</dt><dd>направления продукции</dd></div>
+          <div><dt>2018</dt><dd data-i18n="f1">негизделген жыл</dd></div>
+          <div><dt data-i18n="f2t">Бишкек</dt><dd data-i18n="f2d">Кыргызстан</dd></div>
+          <div><dt>4</dt><dd data-i18n="f3d">продукция багыты</dd></div>
         </dl>
       </div>
     </section>
 
     <section id="products" class="products">
       <div class="wrap">
-        <p class="eyebrow reveal">Продукция</p>
-        <h2 class="reveal">Что мы делаем</h2>
+        <p class="eyebrow reveal" data-i18n="prodEyebrow">Продукция</p>
+        <h2 class="reveal" data-i18n="prodH2">Биз эмне жасайбыз</h2>
         <ul class="plist">
           <li class="reveal">
             <span class="num">01</span>
-            <div><h3>Сыры</h3><p>От свежих до выдержанных. Актуальный ассортимент — по запросу.</p></div>
-            <a data-wa="Здравствуйте! Интересуют сыры. Что есть в наличии?" href="https://wa.me/996700309610">Узнать в WhatsApp</a>
+            <div><h3 data-i18n="p1h">Быштактар</h3><p data-i18n="p1p">Жаңысынан бышканына чейин. Азыркы ассортимент — суроо боюнча.</p></div>
+            <a data-wa="waCheese" data-i18n="more" href="https://wa.me/996700309610">WhatsApp'тан билүү</a>
           </li>
           <li class="reveal">
             <span class="num">02</span>
-            <div><h3>Йогурты</h3><p>Нежные йогурты для завтрака и перекуса.</p></div>
-            <a data-wa="Здравствуйте! Интересуют йогурты. Что есть в наличии?" href="https://wa.me/996700309610">Узнать в WhatsApp</a>
+            <div><h3 data-i18n="p2h">Йогурттар</h3><p data-i18n="p2p">Эртең мененки тамакка жана жеңил закускага назик йогурттар.</p></div>
+            <a data-wa="waYogurt" data-i18n="more" href="https://wa.me/996700309610">WhatsApp'тан билүү</a>
           </li>
           <li class="reveal">
             <span class="num">03</span>
-            <div><h3>Сливочное масло</h3><p>Настоящий вкус сливок — на хлеб и в выпечку.</p></div>
-            <a data-wa="Здравствуйте! Интересует сливочное масло. Что есть в наличии?" href="https://wa.me/996700309610">Узнать в WhatsApp</a>
+            <div><h3 data-i18n="p3h">Сары май</h3><p data-i18n="p3p">Каймактын чыныгы даамы — нанга жана бышырууга.</p></div>
+            <a data-wa="waButter" data-i18n="more" href="https://wa.me/996700309610">WhatsApp'тан билүү</a>
           </li>
           <li class="reveal">
             <span class="num">04</span>
-            <div><h3>Творог и другое</h3><p>Творог и другие молочные продукты — спрашивайте, что есть сегодня.</p></div>
-            <a data-wa="Здравствуйте! Интересует творог и другие молочные продукты." href="https://wa.me/996700309610">Узнать в WhatsApp</a>
+            <div><h3 data-i18n="p4h">Сүзмө жана башкалар</h3><p data-i18n="p4p">Сүзмө жана башка сүт азыктары — бүгүн эмне бар экенин сураңыз.</p></div>
+            <a data-wa="waOther" data-i18n="more" href="https://wa.me/996700309610">WhatsApp'тан билүү</a>
           </li>
         </ul>
       </div>
@@ -154,14 +166,14 @@
 
     <section id="contacts" class="contacts">
       <div class="wrap">
-        <p class="eyebrow reveal">Контакты</p>
-        <h2 class="reveal">Напишите нам —<br><em>ответим в WhatsApp</em></h2>
+        <p class="eyebrow reveal" data-i18n="contEyebrow">Байланыш</p>
+        <h2 class="reveal" data-i18n="contH2">Бизге жазыңыз —<br><em>WhatsApp'та жооп беребиз</em></h2>
         <div class="cgrid reveal">
-          <a class="btn big" data-wa="Здравствуйте! Хочу заказать продукцию «Ля Вуа Лакте»." href="https://wa.me/996700309610">+996 700 309 610</a>
+          <a class="btn big" data-wa="waOrder" href="https://wa.me/996700309610">+996 700 309 610</a>
           <ul>
-            <li><span>Адрес</span>г. Бишкек, ул. Панфилова, 134</li>
+            <li><span data-i18n="lblAddr">Дарек</span><div data-i18n="addr">Бишкек ш., Панфилов көч., 134</div></li>
             <li><span>Instagram</span><a href="https://www.instagram.com/toktogul_sut/" target="_blank" rel="noopener">@toktogul_sut</a></li>
-            <li><span>Компания</span>ОсОО «Ля Вуа Лакте»</li>
+            <li><span data-i18n="lblCompany">Компания</span><div data-i18n="company">«Ля Вуа Лакте» ЖЧК</div></li>
           </ul>
         </div>
       </div>
@@ -169,8 +181,8 @@
   </main>
 
   <footer class="foot">
-    <span>© <span id="year">2026</span> ОсОО «Ля Вуа Лакте»</span>
-    <span>Токтогул сүт · Бишкек</span>
+    <span>© <span id="year">2026</span> <span data-i18n="footCompany">«Ля Вуа Лакте» ЖЧК</span></span>
+    <span data-i18n="footSub">Токтогул сүт · Бишкек</span>
   </footer>
 
   <script type="module" src="/js/main.js"></script>

@@ -33,6 +33,10 @@ em { font-style: italic; font-weight: 300; }
 .nav a:not(.pill):hover { color: var(--ink); }
 .pill { border: 1px solid rgba(245, 239, 228, .4); border-radius: 99px; padding: 9px 20px; transition: .3s; }
 .pill:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.lang { display: flex; gap: 2px; margin-left: clamp(14px, 2vw, 28px); }
+.lang button { background: none; border: 0; padding: 8px 7px; font: inherit; font-size: 11px; font-weight: 500; letter-spacing: .14em; color: var(--mute); cursor: pointer; border-bottom: 1px solid transparent; transition: color .3s, border-color .3s; }
+.lang button:hover { color: var(--ink); }
+.lang button.on { color: var(--gold); border-bottom-color: var(--gold); }
 .burger { display: none; width: 44px; height: 44px; background: none; border: 0; position: relative; cursor: pointer; }
 .burger i { position: absolute; left: 10px; right: 10px; height: 1.5px; background: var(--ink); transition: .35s; }
 .burger i:first-child { top: 18px; } .burger i:last-child { top: 26px; }
@@ -120,7 +124,9 @@ section:not(.story) { position: relative; background: var(--bg); }
   .burger { display: block; }
   .nav { position: fixed; inset: 0; background: rgba(29, 21, 14, .97); flex-direction: column; justify-content: center; gap: 28px; font-size: 22px; font-family: var(--serif); letter-spacing: .04em; opacity: 0; visibility: hidden; transition: .4s; }
   .menu-open .nav { opacity: 1; visibility: visible; }
-  .brand, .burger { position: relative; z-index: 2; }
+  .brand, .burger, .lang { position: relative; z-index: 2; }
+  .lang { margin-left: auto; }
+  .lang button { padding: 10px 6px; }
   .nav a:not(.pill) { color: var(--ink); }
   .rail { display: none; }
   .scrim { background: linear-gradient(0deg, rgba(29, 21, 14, .86) 0%, rgba(29, 21, 14, 0) 62%); }

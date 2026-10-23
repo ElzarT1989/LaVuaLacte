@@ -1,4 +1,5 @@
 import { createStage } from './stage.js';
+import { applyLang, initialLang, saveLang } from './i18n.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -15,12 +16,8 @@ const chapters = $$('.chapter').map((el) => ({
 const railItems = $$('.rail a');
 const loader = $('#loader');
 
-/* WhatsApp-ссылки */
-const WA = 'https://wa.me/996700309610';
-$$('[data-wa]').forEach((a) => {
-  a.href = `${WA}?text=${encodeURIComponent(a.dataset.wa)}`;
-  a.target = '_blank'; a.rel = 'noopener';
-});
+/* язык: тексты и WhatsApp-ссылки (ссылки открываются в новой вкладке) */
+$$('[data-wa]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
 $('#year') && ($('#year').textContent = new Date().getFullYear());
 
 /* меню */
@@ -118,18 +115,31 @@ const io = new IntersectionObserver((es) => es.forEach((e) => {
 }), { threshold: 0.15 });
 $$('.reveal').forEach((el) => io.observe(el));
 
-/* подсветка слов в большом тезисе при прокрутке */
+/* подсветка слов в большом тезисе при прокрутке (пересобирается при смене языка) */
 const lit = $('#lit');
-if (lit) {
+let spans = [];
+function splitLit() {
+  if (!lit) return;
   const words = lit.textContent.trim().split(/\s+/);
   lit.innerHTML = words.map((w) => `<span>${w}</span>`).join(' ');
-  const spans = $$('span', lit);
-  const upd = () => {
-    const r = lit.getBoundingClientRect();
-    const p = clamp((innerHeight * 0.85 - r.top) / (r.height + innerHeight * 0.35), 0, 1);
-    const n = p * spans.length;
-    spans.forEach((s, i) => s.classList.toggle('on', i < n));
-  };
-  addEventListener('scroll', upd, { passive: true });
-  upd();
+  spans = $$('span', lit);
+  updLit();
 }
+function updLit() {
+  if (!lit) return;
+  const r = lit.getBoundingClientRect();
+  const p = clamp((innerHeight * 0.85 - r.top) / (r.height + innerHeight * 0.35), 0, 1);
+  const n = p * spans.length;
+  spans.forEach((s, i) => s.classList.toggle('on', i < n));
+}
+addEventListener('scroll', updLit, { passive: true });
+
+/* язык */
+function setLang(code) {
+  applyLang(code);
+  splitLit();
+}
+$$('[data-lang]').forEach((b) => b.addEventListener('click', () => {
+  saveLang(b.dataset.lang); setLang(b.dataset.lang);
+}));
+setLang(initialLang());
