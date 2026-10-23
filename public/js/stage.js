@@ -25,7 +25,7 @@ export function layout(P) {
 }
 
 const DBG = /debug/.test(location.search);
-const UNIFORMS = ['uRes', 'uTime', 'uU', 'uMouse', 'uShift', 'uJit', 'uTex', 'uTexRes', 'uWipe', 'uFade', 'uCur', 'uHist', 'uAlpha'];
+const UNIFORMS = ['uRes', 'uTime', 'uU', 'uMouse', 'uShift', 'uJit', 'uTex', 'uTexRes', 'uWipe', 'uFade', 'uCur', 'uHist', 'uAlpha', 'uStr'];
 
 export function createStage(canvas, { onReady, onFail, reduced = false, fixedTime = null, fixedScale = null } = {}) {
   const gl = canvas.getContext('webgl2', {
@@ -84,7 +84,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   const VER = '#version 300 es' + NL;
   const HDR = coarse ? VER + '#define COARSE 1' + NL : VER;
   let SIMP = null;
-  const SIM_NAMES = ['uTexel', 'uVel', 'uDye', 'uAux', 'uDt', 'uK', 'uDiss', 'uGrav', 'uPt', 'uVal', 'uAsp'];
+  const SIM_NAMES = ['uTexel', 'uVel', 'uDye', 'uAux', 'uDt', 'uK', 'uDiss', 'uGrav', 'uPt', 'uVal', 'uAsp', 'uSrc', 'uPool'];
   const compileScene = (i) => {
     if (scenes[i]) return;
     if (i === MILK) {
@@ -256,7 +256,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   /* ---------- финальная 2D-сцена: молоко как жидкость ---------- */
   const FL = {
     asp: 0, vw: 0, vh: 0, dw: 0, dh: 0, V: null, D: null, P: null, DV: null, CV: null,
-    q: [], prevU: -2, lastU: 0, idle: 1.2, px: 0.5, py: 0.5, pid: false, reset: true,
+    q: [], prevU: -2, lastU: 0, idle: 0, t: 0, src: [0.7, 0, 0, 1], pool: [0, 0, 0, 0], px: 0.5, py: 0.5, pid: false, reset: true,
   };
   const pp = (w, h) => ({ t: [makeTarget(w, h, false, gl.RGBA16F, true), makeTarget(w, h, false, gl.RGBA16F, true)], i: 0 });
   const cur = (x) => x.t[x.i], nxt = (x) => x.t[1 - x.i], flip = (x) => { x.i = 1 - x.i; };
@@ -281,7 +281,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   function clearFluid() {
     gl.clearColor(0, 0, 0, 0);
     for (const t of [...FL.V.t, ...FL.D.t, ...FL.P.t, FL.DV, FL.CV]) { gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.clear(gl.COLOR_BUFFER_BIT); }
-    FL.q.length = 0; FL.prevU = -2; FL.lastU = 0; FL.reset = false; FL.idle = 1.2;
+    FL.q.length = 0; FL.prevU = -2; FL.lastU = 0; FL.reset = false; FL.idle = 0;
   }
   const bindT = (unit, tex) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); };
   function use(pr, tgt, w, h) {
@@ -322,12 +322,8 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     }
     splat(V, FL.vw, FL.vh, x, y, 0.06 * size, 0, -40 * size, 0);
   }
-  /* сценарий по прокрутке: [порог u, x, y, размер] */
-  const EVENTS = [
-    [-1, 0.5, 0.62, 1.15], [0.07, 0.22, 0.55, 0.85], [0.14, 0.8, 0.6, 0.9], [0.22, 0.4, 0.4, 0.85],
-    [0.3, 0.68, 0.48, 0.9], [0.38, 0.5, 0.72, 1.1], [0.47, 0.18, 0.38, 0.75], [0.55, 0.84, 0.45, 0.85],
-    [0.64, 0.5, 0.5, 1.3], [0.74, 0.3, 0.64, 0.9], [0.82, 0.7, 0.68, 1], [0.9, 0.5, 0.58, 1.2],
-  ];
+  /* уровень «ванны» растёт с прокруткой (в шейдере MILK2D та же формула) */
+  const poolLevel = (u) => { const t = Math.min(Math.max((u - 0.05) / 0.8, 0), 1); return 0.05 + 0.33 * t * t * (3 - 2 * t); };
   addEventListener('pointermove', (e) => {
     if (!FL.V || S.lastScene !== MILK) return;
     const x = e.clientX / innerWidth, y = 1 - e.clientY / innerHeight;
@@ -343,29 +339,26 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   function stepFluid(dt, u) {
     if (FL.reset) clearFluid();
     const { vw, vh, dw, dh } = FL;
-    if (u < FL.prevU) FL.prevU = u - 1e-4; /* назад по прокрутке — сценарий можно сыграть снова */
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
-    /* события сценария (не больше трёх за кадр) */
-    let fired = 0, left = false;
-    for (const ev of EVENTS) {
-      if (ev[0] <= FL.prevU) continue;
-      if (ev[0] > u) break;
-      if (fired >= 3) { left = true; break; }
-      splash(ev[1], ev[2], ev[3]); fired++; FL.prevU = ev[0];
-    }
-    if (!left) FL.prevU = Math.max(FL.prevU, u);
-    /* спокойные всплески сами по себе */
-    FL.idle -= dt;
-    if (FL.idle < 0 && u > 0.04) {
-      splash(0.15 + Math.random() * 0.7, 0.55 + Math.random() * 0.35, 0.35 + Math.random() * 0.25);
-      FL.idle = 1.7 + Math.random() * 1.6;
-    }
-    /* прокрутка размешивает молоко */
-    const du = Math.abs(u - FL.lastU) / Math.max(dt, 1e-3);
+    /* струя из «бочки» качается сама, падает не спеша; ванна поднимается */
+    const asp = FL.asp, t = (FL.t += dt), lvl = poolLevel(u);
+    const sx = (asp > 1.1 ? 0.74 : 0.84) + 0.012 * Math.sin(t * 0.37) + 0.005 * Math.sin(t * 0.91 + 1);
+    FL.src = [sx, asp > 1.1 ? 0.05 : 0.036, t, asp];
+    FL.pool = [lvl, sx, 0.0065 * (0.75 + 0.25 * Math.sin(t * 1.3)), t];
     FL.lastU = u;
-    if (du > 0.01) {
-      const k = Math.min(du * 7, 1.6), an = Math.random() * 6.283;
-      splat(cur(FL.V), vw, vh, 0.1 + Math.random() * 0.8, 0.35 + Math.random() * 0.5, 0.09, Math.cos(an) * 90 * k, Math.sin(an) * 90 * k, 0);
+    /* место падения: венец из молока и расходящиеся от него волны */
+    {
+      const ix = sx, iy = lvl + 0.008, kv = asp > 1.1 ? 1 : 0.35; /* на узком экране волны слабее: иначе венец закручивается в кольца */
+      splat(cur(FL.D), dw, dh, ix, iy, 0.026, 0.9 * Math.min(dt * 30, 1), 0.9, 0);
+      for (const sgn of [-1, 1]) splat(cur(FL.V), vw, vh, ix + (sgn * 0.04) / asp, iy + 0.012, 0.035, sgn * 26 * kv, 12 * kv, 0);
+    }
+    FL.idle -= dt;
+    if (FL.idle < 0) { /* редкие капли в стороны */
+      FL.idle = 0.3 + Math.random() * 0.5;
+      const an = 1.57 + (Math.random() - 0.5) * 2.2, c = Math.cos(an), s2 = Math.sin(an), sp = (12 + Math.random() * 18) * (asp > 1.1 ? 1 : 0.5);
+      const bx = sx + (c * 0.03) / asp, by = lvl + 0.014 + s2 * 0.02;
+      splat(cur(FL.D), dw, dh, bx, by, 0.008 + Math.random() * 0.005, 0.9, 0.9, 0);
+      splat(cur(FL.V), vw, vh, bx, by, 0.03, c * sp, s2 * sp, 0);
     }
     /* мышь и касания */
     for (const q of FL.q.splice(0, 12)) {
@@ -382,7 +375,8 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     use(SIMP.curl, FL.CV, vw, vh); draw();
     bindT(1, cur(FL.D).tex); bindT(2, FL.CV.tex);
     use(SIMP.vort, nxt(FL.V), vw, vh);
-    gl.uniform1f(SIMP.vort.u.uDt, dt); gl.uniform1f(SIMP.vort.u.uK, 22); gl.uniform1f(SIMP.vort.u.uGrav, 14);
+    gl.uniform1f(SIMP.vort.u.uDt, dt); gl.uniform1f(SIMP.vort.u.uK, 1.5); gl.uniform1f(SIMP.vort.u.uGrav, 26);
+    gl.uniform4fv(SIMP.vort.u.uPool, FL.pool);
     draw(); flip(FL.V);
     /* давление: несжимаемость */
     bindT(0, cur(FL.V).tex);
@@ -401,7 +395,8 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     draw(); flip(FL.V);
     bindT(0, cur(FL.V).tex); bindT(1, cur(FL.D).tex);
     use(SIMP.advectDye, nxt(FL.D), dw, dh);
-    gl.uniform1f(SIMP.advectDye.u.uDt, dt); gl.uniform1f(SIMP.advectDye.u.uK, 1); gl.uniform1f(SIMP.advectDye.u.uDiss, 0.14);
+    gl.uniform1f(SIMP.advectDye.u.uDt, dt); gl.uniform1f(SIMP.advectDye.u.uK, 1); gl.uniform1f(SIMP.advectDye.u.uDiss, 0.04);
+    gl.uniform4fv(SIMP.advectDye.u.uSrc, FL.src); gl.uniform4fv(SIMP.advectDye.u.uPool, FL.pool);
     draw(); flip(FL.D);
   }
 
@@ -421,6 +416,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     gl.uniform2f(pr.u.uRes, sw, sh);
     gl.uniform1f(pr.u.uTime, S.time);
     gl.uniform1f(pr.u.uU, lay.u);
+    gl.uniform4f(pr.u.uStr, FL.src[0], FL.src[1], FL.t, FL.pool[0]);
     draw();
   }
 

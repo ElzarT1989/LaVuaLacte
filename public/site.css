@@ -66,6 +66,12 @@ em { font-style: italic; font-weight: 300; }
 .chapter.cap { left: 50%; bottom: 9vh; text-align: center; max-width: 30rem; width: calc(100% - 2 * var(--pad)); transform: translateX(-50%); }
 .chapter.cap p:not(.eyebrow) { margin-inline: auto; }
 .chapter.cap .cta { justify-content: center; }
+/* финальная сцена: струя справа, текст слева над ванной */
+@media (min-width: 861px) {
+  .chapter.cap.pour { left: var(--pad); bottom: 41vh; width: auto; transform: none; text-align: left; }
+  .chapter.cap.pour p:not(.eyebrow) { margin-inline: 0; }
+  .chapter.cap.pour .cta { justify-content: flex-start; }
+}
 .scrim { transition: opacity .8s; }
 .milk2d .scrim { opacity: 0; }
 .milk2d .top { background: linear-gradient(180deg, rgba(29, 21, 14, .88), transparent); }
@@ -137,6 +143,9 @@ section:not(.story) { position: relative; background: var(--bg); }
   .chapter { bottom: 11vh; right: var(--pad); max-width: none; }
   .chapter.hero { top: auto; bottom: 12vh; transform: none; }
   .chapter.cap { bottom: 9vh; right: auto; }
+  .chapter.cap.pour { left: var(--pad); width: 62vw; bottom: 42vh; transform: none; text-align: left; }
+  .chapter.cap.pour p:not(.eyebrow) { margin-inline: 0; }
+  .chapter.cap.pour .cta { justify-content: flex-start; }
   .chapter h2 { font-size: clamp(36px, 10vw, 54px); }
   .plist li { grid-template-columns: 38px 1fr; }
   .plist li > a { grid-column: 2; justify-self: start; }

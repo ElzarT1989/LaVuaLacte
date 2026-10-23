@@ -943,22 +943,28 @@ void main(){
   fragColor=c/(1.+uDiss*uDt);
 }`),
   /* перенос толщины. «Поверхностное натяжение»: где молока больше порога — оно набирает плотность, где меньше — тает,
-     поэтому край остаётся чётким, а не расплывается от интерполяции. Внизу экрана молоко стекает «в слив». */
+     поэтому край остаётся чётким. Внизу — «ванна» с уровнем и волнами от места падения (uPool); сама струя рисуется в MILK2D аналитически. */
   advectDye: sim(`
 uniform float uDiss;
+uniform vec4 uSrc;   /* .w — аспект экрана */
+uniform vec4 uPool;  /* уровень, x падения, амплитуда волн, время */
 void main(){
   vec2 v=texture(uVel,vUv).xy;
   vec2 p=vUv-uDt*v*uTexel*uK;
   vec4 c=texture(uDye,p);
-  float r=c.r;
-  /* лёгкое сглаживание + «натяжение» (ниже) = округлые края вместо рваных */
+  float r=c.r, tn=c.g;
   vec2 dt=1./vec2(textureSize(uDye,0));
   float nb=texture(uDye,p+vec2(dt.x,0.)).r+texture(uDye,p-vec2(dt.x,0.)).r+texture(uDye,p+vec2(0.,dt.y)).r+texture(uDye,p-vec2(0.,dt.y)).r;
   r=mix(r,nb*.25,clamp(uDt*22.,0.,.45));
   r+=uDt*9.*r*(1.-min(r,1.))*(r-.35)*step(r,1.);
   r-=uDt*max(r-1.,0.)*.5;
-  r=max(r-uDt*(uDiss+3.2*(1.-smoothstep(.1,.72,vUv.y))),0.);
-  fragColor=vec4(min(r,1.8),c.g,0.,0.);
+  r=max(r-uDt*(uDiss+5.*(1.-smoothstep(uPool.x+.015,uPool.x+.16,vUv.y))*step(uPool.x+.004,vUv.y)),0.); /* молоко над гладью впитывается в ванну */
+  /* ванна: гладь с мелкой зыбью и кольцами волн от струи */
+  float dx=(vUv.x-uPool.y)*uSrc.w;
+  float wv=uPool.z*sin(44.*abs(dx)-5.*uPool.w)*exp(-2.6*abs(dx))+.004*sin(9.*vUv.x*uSrc.w+1.1*uPool.w)+.0025*sin(23.*vUv.x*uSrc.w-1.7*uPool.w)+.011*exp(-dx*dx/.0022)*(.8+.2*sin(uPool.w*3.1));
+  float pool=smoothstep(uPool.x+wv+.005,uPool.x+wv-.005,vUv.y);
+  r=max(r,pool); tn=max(tn,pool*.5);
+  fragColor=vec4(min(r,1.8),tn,0.,0.);
 }`),
   /* дивергенция скорости со стенками (на границе нормальная компонента отражается — молоко бьётся о края) */
   div: sim(`
@@ -968,7 +974,7 @@ void main(){
   vec2 C=texture(uVel,vUv).xy;
   if(L.x<0.) vL=-C.x;
   if(R.x>1.) vR=-C.x;
-  if(T.y>1.) vT=-C.y;
+  if(T.y>1.) vT=C.y; /* сверху граница открытая: через неё втекает струя */
   if(B.y<0.) vB=-C.y;
   fragColor=vec4(.5*(vR-vL+vT-vB),0.,0.,0.);
 }`),
@@ -981,6 +987,7 @@ void main(){
   /* завихрения + сила тяжести (молоко стекает вниз, густое — быстрее) */
   vort: sim(`
 uniform float uGrav;
+uniform vec4 uPool;
 void main(){
   float L=texture(uAux,vUv-vec2(uTexel.x,0.)).x, R=texture(uAux,vUv+vec2(uTexel.x,0.)).x;
   float T=texture(uAux,vUv+vec2(0.,uTexel.y)).x, B=texture(uAux,vUv-vec2(0.,uTexel.y)).x;
@@ -991,6 +998,9 @@ void main(){
   vec2 v=texture(uVel,vUv).xy+f*uDt;
   float m=texture(uDye,vUv).r;
   v.y-=uGrav*uDt*smoothstep(.1,.8,m);
+  /* в ванне течение вязкое и быстро затихает */
+  float pl=smoothstep(uPool.x+.012,uPool.x-.02,vUv.y);
+  v/=1.+uDt*26.*pl;
   fragColor=vec4(clamp(v,-400.,400.),0.,0.);
 }`),
   pressure: sim(`
@@ -1025,10 +1035,21 @@ uniform float uShift;
 uniform vec2 uJit;
 uniform sampler2D uTex;
 uniform vec2 uTexRes;
+uniform vec4 uStr;   /* x струи, полуширина (в высотах экрана), время, уровень ванны */
 out vec4 fragColor;
 float h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
 vec2 field(vec2 uv){ vec4 d=texture(uTex,uv); return d.rg; }
-float th(vec2 uv){ return texture(uTex,uv).r; }
+/* струя из «бочки»: цельная колонка, по ней вниз бегут волны толщины, к ванне она тоньше. Поле «толщины», как у симуляции. */
+float strm(vec2 uv,float asp){
+  float t=uStr.z, y=uv.y;
+  float x0=uStr.x+(.017*sin(y*5.5+t*.7)+.006*sin(y*13.-t*1.9))/asp;
+  float w=uStr.y*1.5*(1.+.14*sin(y*9.-t*2.6)+.06*sin(y*21.+t*3.3))*mix(.8,1.15,smoothstep(.2,1.,y));
+  float d=abs(uv.x-x0)*asp;
+  float s=1.15*(1.-smoothstep(0.,1.,d/w));
+  float yf=1.1-1.25*clamp(uU/.1,0.,1.);
+  return s*smoothstep(yf-.04,yf+.02,y)*smoothstep(uStr.w-.07,uStr.w-.02,y);
+}
+float th(vec2 uv){ return max(texture(uTex,uv).r,strm(uv,uRes.x/uRes.y)); }
 void main(){
   vec2 uv=gl_FragCoord.xy/uRes;
   float asp=uRes.x/uRes.y;
@@ -1060,7 +1081,7 @@ void main(){
   float fr=pow(1.-max(n.z,0.),3.);
   /* цвет: от тёплого сливочного на тонких краях к белому в толще (g — «жирность» из источника) */
   vec3 cream=vec3(.98,.92,.80), white=vec3(1.,.985,.955);
-  float tint=clamp(texture(uTex,uv).g,0.,1.);
+  float tint=clamp(texture(uTex,uv).g,0.,1.);  /* g — «жирность» из симуляции */
   vec3 base=mix(cream,white,clamp(depth*.9+tint*.35,0.,1.));
   /* подповерхностное рассеяние: тонкий слой светится тёплым, в толще — мягкая тень */
   vec3 col=base*(.55+.62*dif)*(.82+.28*h);
@@ -1081,7 +1102,9 @@ void main(){
   vec3 bgc=bg*(1.-.6*halo)+vec3(.30,.20,.10)*halo*halo*.55;
   col=mix(bgc,col,m);
   /* внизу молоко уходит в тень: подпись читается */
-  col*=mix(.1,1.,smoothstep(.1,.78,uv.y))*mix(1.,.5,smoothstep(.86,1.,uv.y));
+  /* ванна темнеет с глубиной (под текстом), верх приглушён под меню */
+  float lvl=uStr.w;
+  col*=mix(vec3(1.),vec3(.40,.33,.26),smoothstep(.0,.24,lvl-uv.y))*mix(1.,.5,smoothstep(.86,1.,uv.y));
   /* едва заметное зерно, чтобы градиенты не «полосились» */
   col+=(h21(gl_FragCoord.xy+uTime*13.)-.5)*.004;
   fragColor=vec4(max(col,0.),1.);
