@@ -44,7 +44,8 @@ const server = http.createServer((req, res) => {
   fs.readFile(file, (err, data) => {
     if (err) return send(res, 404, 'Не найдено', { 'Content-Type': MIME['.txt'] });
     const ext = path.extname(file).toLowerCase();
-    const cache = ext === '.html' ? 'no-cache' : 'public, max-age=86400';
+    const revalidate = ['.html', '.css', '.js'].includes(ext);
+    const cache = revalidate ? 'no-cache' : 'public, max-age=86400';
     send(res, 200, req.method === 'HEAD' ? '' : data, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
       'Cache-Control': cache,
