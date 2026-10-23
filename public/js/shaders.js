@@ -70,6 +70,16 @@ const TOOLS = `
 #ifndef FOG
 #define FOG .004
 #endif
+/* телефоны (COARSE подставляет stage.js): короче марш и тени — кадр заметно дешевле */
+#ifdef COARSE
+#undef NSTEP
+#define NSTEP 68
+#define SHADOW_N 10
+#define REFL_N 24
+#else
+#define SHADOW_N 14
+#define REFL_N 36
+#endif
 
 vec2 march(vec3 ro,vec3 rd){
   float t=0.; float id=-1.;
@@ -90,7 +100,7 @@ vec2 march(vec3 ro,vec3 rd){
 /* укороченный марш для отражений: там детали не нужны */
 vec2 marchR(vec3 ro,vec3 rd){
   float t=0.; float id=-1.;
-  for(int i=ZERO;i<36;i++){
+  for(int i=ZERO;i<REFL_N;i++){
     vec2 h=mapR(ro+rd*t);
     id=h.y;
     if(h.x<.004*t+.003) break;
@@ -128,7 +138,7 @@ float calcAO(vec3 p,vec3 n){
 }
 float calcShadow(vec3 ro,vec3 rd,float mint,float maxt,float k){
   float res=1.,t=mint;
-  for(int i=ZERO;i<14;i++){
+  for(int i=ZERO;i<SHADOW_N;i++){
     float h=map(ro+rd*t).x;
     res=min(res,k*h/t);
     t+=clamp(h,.03,.7);
@@ -452,7 +462,7 @@ vec2 cheeseWheel(vec3 p){
   float cut=sdPie(vec2(q.x,q.z)*vec2(1.,-1.),.5,2.);
   float d=max(w,-cut);
   float core=smoothstep(.0,.08,.82-length(q.xz));
-  if(d<.3) d=max(d,-eyes(q*vec3(1.,1.4,1.)+vec3(2.,0.,1.))*core+.0);
+  if(d<.3) d=max(d,-mix(.3,eyes(q*vec3(1.,1.4,1.)+vec3(2.,0.,1.)),core));
   return vec2(d,10.);
 }
 vec2 cheeseWedge(vec3 p){
@@ -464,7 +474,7 @@ vec2 cheeseWedge(vec3 p){
   float pie=sdPie(vec2(q.x,q.z),.5,2.);
   float d=max(w,pie-.0);
   float core=smoothstep(.0,.08,.82-length(q.xz));
-  if(d<.3) d=max(d,-eyes(q*vec3(1.,1.4,1.)+vec3(2.,0.,1.))*core);
+  if(d<.3) d=max(d,-mix(.3,eyes(q*vec3(1.,1.4,1.)+vec3(2.,0.,1.)),core));
   return vec2(d,10.);
 }
 vec2 jar(vec3 p){

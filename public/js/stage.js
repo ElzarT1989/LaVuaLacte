@@ -33,7 +33,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   if (!gl) { onFail && onFail('webgl2'); return null; }
 
   const parallel = gl.getExtension('KHR_parallel_shader_compile');
-  const floatRT = !!gl.getExtension('EXT_color_buffer_float');
+  const floatRT = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
   gl.bindVertexArray(gl.createVertexArray());
 
   /* ---------- программы ---------- */
@@ -72,7 +72,11 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   const resolve = makeProgram(RESOLVE);
   const aa = makeProgram(FXAA);
   const scenes = SCENES.map(() => null);
-  const compileScene = (i) => { if (!scenes[i]) scenes[i] = makeProgram(SCENES[i]); };
+  const coarse = matchMedia('(pointer:coarse)').matches || innerWidth < 760;
+  const NL = String.fromCharCode(10);
+  const VER = '#version 300 es' + NL;
+  const HDR = coarse ? VER + '#define COARSE 1' + NL : VER;
+  const compileScene = (i) => { if (!scenes[i]) scenes[i] = makeProgram(SCENES[i].replace(VER, HDR)); };
   compileScene(0);
 
   /* ---------- буферы: текущий кадр + два буфера истории (с мипами для блума) ---------- */
@@ -105,7 +109,6 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   }
 
   /* ---------- состояние ---------- */
-  const coarse = matchMedia('(pointer:coarse)').matches || innerWidth < 760;
   /* ступени разрешения сцены (доля от размера холста): меняем редко и только на соседнюю ступень */
   const STEPS = fixedScale ? [fixedScale] : coarse ? [0.36, 0.42, 0.49, 0.56, 0.64, 0.72, 0.8, 0.9] : [0.5, 0.58, 0.67, 0.77, 0.88, 1];
   const START = fixedScale ? 0 : coarse ? 3 : 2;
