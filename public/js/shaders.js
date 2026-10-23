@@ -43,12 +43,12 @@ vec2 opU(vec2 a,vec2 b){ return a.x<b.x?a:b; }
 
 /* студийное окружение: тёмная пустота + мягкие софтбоксы */
 vec3 env(vec3 d){
-  vec3 c=mix(vec3(.012,.008,.026),vec3(.065,.042,.12),smoothstep(-.3,1.,d.y));
+  vec3 c=mix(vec3(.03,.021,.013),vec3(.17,.12,.075),smoothstep(-.3,1.,d.y));
   vec3 L1=normalize(vec3(-.55,.68,.48));
   float k=dot(d,L1);
   c+=vec3(1.,.93,.84)*(smoothstep(.925,.965,k)*7.+pow(max(k,0.),10.)*.7);
   vec3 L2=normalize(vec3(.85,.28,.15));
-  c+=vec3(.7,.66,1.)*smoothstep(.975,.992,dot(d,L2))*4.5;
+  c+=vec3(1.,.86,.68)*smoothstep(.975,.992,dot(d,L2))*4.5;
   vec3 L3=normalize(vec3(.1,.18,-.95));
   c+=vec3(1.,.68,.34)*pow(max(dot(d,L3),0.),7.)*1.1;
   return c;
@@ -139,9 +139,9 @@ vec3 lighting(vec3 p,vec3 n,vec3 rd,vec3 alb,float rough,float specAmt,float sss
   float sh=calcShadow(p+n*.012,L,.04,7.,9.);
   float ao=calcAO(p,n);
   vec3 col=alb*vec3(1.,.94,.86)*max(ndl,0.)*sh*1.9;
-  vec3 amb=mix(vec3(.05,.035,.1),vec3(.26,.21,.38),n.y*.5+.5);
+  vec3 amb=mix(vec3(.08,.052,.03),vec3(.36,.27,.18),n.y*.5+.5);
   col+=alb*amb*ao*1.25;
-  col+=alb*vec3(.4,.34,.95)*max(dot(n,normalize(vec3(.85,.25,.15))),0.)*.55*ao;
+  col+=alb*vec3(.95,.74,.5)*max(dot(n,normalize(vec3(.85,.25,.15))),0.)*.5*ao;
   col+=alb*vec3(1.,.6,.3)*max(dot(n,normalize(vec3(.1,-.1,-.95))),0.)*.4;
   float th=clamp(-map(p-n*.11).x/.11,0.,1.);
   float wrap=clamp((ndl+.6)/1.6,0.,1.);
@@ -272,8 +272,8 @@ void camera(out vec3 ro,out vec3 ta,out float fov){
   fov=1.85;
 }
 vec3 background(vec3 rd){
-  vec3 c=mix(vec3(.01,.007,.022),vec3(.06,.038,.12),smoothstep(-.2,.6,rd.y));
-  c+=vec3(.5,.35,.7)*exp(-pow(rd.y-.05,2.)*60.)*.05;
+  vec3 c=mix(vec3(.025,.018,.011),vec3(.16,.115,.07),smoothstep(-.2,.6,rd.y));
+  c+=vec3(.75,.55,.35)*exp(-pow(rd.y-.05,2.)*60.)*.05;
   return c;
 }
 vec3 bodyCol(vec3 p,vec3 n,out float rough,out float spec,out float sss){
@@ -296,7 +296,7 @@ vec3 bodyCol(vec3 p,vec3 n,out float rough,out float spec,out float sss){
 }
 vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
   if(id>1.5&&id<2.5){
-    vec3 alb=vec3(.78,.76,.8);
+    vec3 alb=vec3(.82,.78,.72);
     vec3 r=reflect(rd,n);
     float ao=calcAO(p,n);
     float fr=pow(1.-max(dot(n,-rd),0.),3.);
@@ -304,7 +304,7 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
   }
   bool isFloor=id>2.5;
   float ro_=.6,sp=.45,ss=0.;
-  vec3 alb=vec3(.035,.026,.06);
+  vec3 alb=vec3(.11,.08,.05);
   if(!isFloor) alb=bodyCol(p,n,ro_,sp,ss);
   vec3 col=lighting(p,n,rd,alb,ro_,sp,ss);
   if(isFloor){
@@ -316,8 +316,8 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
     if(hr.y>0.&&hr.y<2.5){
       vec3 pp=p+n*.01+rdr*hr.x;
       vec3 nn=calcNR(pp,hr.x);
-      vec3 a2=hr.y<1.5?mix(vec3(.96,.93,.8),vec3(.8,.55,.25),smoothstep(.55,.9,uU)):vec3(.62,.64,.7);
-      vec3 rc=a2*(env(reflect(rdr,nn))*.5+vec3(.18,.15,.25));
+      vec3 a2=hr.y<1.5?mix(vec3(.96,.93,.8),vec3(.8,.55,.25),smoothstep(.55,.9,uU)):vec3(.68,.64,.58);
+      vec3 rc=a2*(env(reflect(rdr,nn))*.5+vec3(.26,.2,.12));
       col=mix(col,rc,.55*pow(1.-max(dot(n,-rd),0.),1.6)+.18);
     }
     col*=mix(.25,1.,fade);
@@ -528,11 +528,11 @@ void camera(out vec3 ro,out vec3 ta,out float fov){
   fov=1.75;
 }
 vec3 background(vec3 rd){
-  return mix(vec3(.012,.008,.026),vec3(.07,.045,.13),smoothstep(-.1,.5,rd.y));
+  return mix(vec3(.03,.021,.013),vec3(.17,.12,.075),smoothstep(-.1,.5,rd.y));
 }
 vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float sss){
   rough=.5; spec=.5; sss=0.;
-  if(id<3.5){ rough=.12; spec=1.; return vec3(.03,.022,.05); }
+  if(id<3.5){ rough=.12; spec=1.; return vec3(.1,.072,.045); }
   if(id<10.5){
     vec3 q=p;
     float cutFace=1.-smoothstep(.3,.8,abs(n.y));
@@ -547,7 +547,7 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
     float y=p.y;
     vec3 white=vec3(.95,.94,.92);
     float lab=smoothstep(.34,.36,y)*(1.-smoothstep(.78,.8,y));
-    vec3 violet=vec3(.14,.06,.32);
+    vec3 violet=vec3(.45,.22,.09);
     float gl=smoothstep(.012,.0,abs(y-.4))+smoothstep(.012,.0,abs(y-.74));
     vec3 col=mix(white,violet,lab);
     col=mix(col,vec3(.95,.75,.3),gl*lab);
@@ -557,7 +557,7 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
   if(id<12.5){ rough=.28; spec=1.; return vec3(.9,.66,.24); }
   if(id<13.5){ rough=.3; spec=.7; sss=.6; return vec3(.98,.86,.45); }
   if(id<14.5){ rough=.25; spec=1.; return vec3(.78,.74,.62)*(.8+.4*fbmL(p*20.)); }
-  if(id<15.5){ rough=.2; spec=.9; return vec3(.93,.92,.95); }
+  if(id<15.5){ rough=.2; spec=.9; return vec3(.95,.93,.88); }
   if(id<16.5){ rough=.4; spec=.5; sss=.9; return vec3(.97,.95,.9); }
   rough=.15; spec=1.; return vec3(.5,.04,.1);
 }
@@ -571,8 +571,8 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
     if(hr.y>3.5){
       vec3 pp=p+n*.01+rdr*hr.x;
       vec3 nn=calcNR(pp,hr.x);
-      vec3 a2=hr.y<10.5?vec3(.9,.7,.3):hr.y<11.5?vec3(.9,.88,.92):hr.y<13.5?vec3(.98,.86,.45):vec3(.93,.92,.95);
-      vec3 rc=a2*(env(reflect(rdr,nn))*.45+vec3(.2,.16,.26));
+      vec3 a2=hr.y<10.5?vec3(.9,.7,.3):hr.y<11.5?vec3(.92,.89,.84):hr.y<13.5?vec3(.98,.86,.45):vec3(.95,.93,.88);
+      vec3 rc=a2*(env(reflect(rdr,nn))*.45+vec3(.26,.2,.12));
       col=mix(col,rc,.5*pow(1.-max(dot(n,-rd),0.),1.4)+.14);
     }
     col*=exp(-length(p.xz-vec2(0.,0.))*.0);
@@ -613,7 +613,7 @@ void main(){
   vec3 vv=cross(uu,ww);
   vec3 rd=normalize(uv.x*uu+uv.y*vv+1.55*ww);
 
-  vec3 sky=mix(vec3(.02,.014,.05),vec3(.07,.045,.14),smoothstep(-.1,.5,rd.y));
+  vec3 sky=mix(vec3(.04,.028,.017),vec3(.17,.12,.075),smoothstep(-.1,.5,rd.y));
   vec3 col=sky;
   float tt=-1.;
   if(rd.y<-.0001){
@@ -657,10 +657,10 @@ void main(){
       sh=min(sh,clamp((q.y-H(q.xz))*5./ds+.25,0.,1.));
     }
     sh=sh*sh*(3.-2.*sh);
-    vec3 alb=vec3(.95,.92,.86);
+    vec3 alb=vec3(.96,.9,.79);
     vec3 c=alb*vec3(1.,.9,.8)*wr*wr*mix(.15,1.,sh)*1.2;
-    c+=alb*mix(vec3(.025,.018,.06),vec3(.15,.11,.27),n.y*.5+.5)*mix(.25,1.,hn)*mix(.6,1.,sh);
-    c+=alb*vec3(.4,.34,.95)*max(dot(n,normalize(vec3(.85,.25,.15))),0.)*.5*mix(.5,1.,sh);
+    c+=alb*mix(vec3(.05,.034,.02),vec3(.27,.2,.13),n.y*.5+.5)*mix(.25,1.,hn)*mix(.6,1.,sh);
+    c+=alb*vec3(.95,.74,.5)*max(dot(n,normalize(vec3(.85,.25,.15))),0.)*.45*mix(.5,1.,sh);
     c+=alb*vec3(1.,.66,.4)*(1.-hn)*wr*sh*.28;
     float fr=pow(1.-max(dot(n,v),0.),5.);
     vec3 r=reflect(rd,n);
@@ -754,7 +754,7 @@ void main(){
   col+=bl*.17;
   col=aces(col*1.05);
   col=pow(col,vec3(1./2.2));
-  col+=vec3(.010,.006,.022)*(1.-col);
+  col+=vec3(.020,.012,.004)*(1.-col);
 
   float v=length((uv-.5)*vec2(1.,.85));
   col*=1.-.55*smoothstep(.35,.95,v);
