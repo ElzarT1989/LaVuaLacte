@@ -1,4 +1,4 @@
-/* GLSL: общий код + четыре сцены. Каждая сцена — отдельная программа. */
+/* GLSL: общий код + пять сцен (четыре 3D и финальная 2D). Каждая сцена — отдельная программа. */
 
 export const VERT = `#version 300 es
 void main(){
@@ -700,12 +700,6 @@ void main(){
 
 const scene = (map, look) => HEAD + map + TOOLS + look + MAIN;
 
-export const SCENES = [
-  FLOW,
-  scene(OBJ_MAP, OBJ_LOOK),
-  scene(CELLAR_MAP, CELLAR_LOOK),
-  scene(PROD_MAP, PROD_LOOK),
-];
 
 /* ---------- Временное накопление (TAA): сглаживает края и добавляет детали, пока кадр почти не меняется ----------
    Субпиксельный сдвиг камеры (uJit) + история, зажатая в окрестности текущего пикселя (без «шлейфов»). */
@@ -900,3 +894,203 @@ void main(){
   if(horz) fuv.y+=fo*stepL; else fuv.x+=fo*stepL;
   fragColor=vec4(fin(S(fuv)),1.);
 }`;
+
+/* ---------- Сцена 4 (2D): молоко растекается и плещется по экрану ----------
+   Настоящая жидкость на GPU (метод «stable fluids»): скорость и «толщина молока» живут в малых текстурах,
+   каждый кадр — перенос, завихрения, давление (Якоби), вычитание градиента. Затем шейдер рисует
+   по толщине поверхность молока: чёткий край (изолиния), мениск, глянец, тёплый отсвет на фоне. */
+const SIM_HEAD = `#version 300 es
+precision highp float;
+uniform vec2 uTexel;
+uniform sampler2D uVel;
+uniform sampler2D uDye;
+uniform sampler2D uAux;
+uniform float uDt;
+uniform float uK;
+in vec2 vUv;
+out vec4 fragColor;
+`;
+/* вершинный шейдер сима: те же 3 вершины, но с vUv */
+export const SIM_VERT = `#version 300 es
+out vec2 vUv;
+void main(){
+  vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+const sim = (body) => SIM_HEAD + body;
+export const SIM = {
+  /* добавка в текстуру (аддитивное смешивание): гауссово пятно */
+  splat: `#version 300 es
+precision highp float;
+uniform vec4 uPt;      /* x,y, радиус, форма */
+uniform vec4 uVal;
+uniform float uAsp;
+in vec2 vUv;
+out vec4 fragColor;
+void main(){
+  vec2 d=(vUv-uPt.xy)*vec2(uAsp,1.);
+  float g=exp(-dot(d,d)/(uPt.z*uPt.z));
+  fragColor=vec4(uVal.xyz*g,0.);
+}`,
+  /* перенос величины по полю скорости (bilinear, обратный по времени), затухание, стенки */
+  advect: sim(`
+uniform float uDiss;
+void main(){
+  vec2 v=texture(uVel,vUv).xy;
+  vec2 p=vUv-uDt*v*uTexel*uK;
+  vec4 c=texture(uAux,p);
+  fragColor=c/(1.+uDiss*uDt);
+}`),
+  /* перенос толщины. «Поверхностное натяжение»: где молока больше порога — оно набирает плотность, где меньше — тает,
+     поэтому край остаётся чётким, а не расплывается от интерполяции. Внизу экрана молоко стекает «в слив». */
+  advectDye: sim(`
+uniform float uDiss;
+void main(){
+  vec2 v=texture(uVel,vUv).xy;
+  vec2 p=vUv-uDt*v*uTexel*uK;
+  vec4 c=texture(uDye,p);
+  float r=c.r;
+  /* лёгкое сглаживание + «натяжение» (ниже) = округлые края вместо рваных */
+  vec2 dt=1./vec2(textureSize(uDye,0));
+  float nb=texture(uDye,p+vec2(dt.x,0.)).r+texture(uDye,p-vec2(dt.x,0.)).r+texture(uDye,p+vec2(0.,dt.y)).r+texture(uDye,p-vec2(0.,dt.y)).r;
+  r=mix(r,nb*.25,clamp(uDt*22.,0.,.45));
+  r+=uDt*9.*r*(1.-min(r,1.))*(r-.35)*step(r,1.);
+  r-=uDt*max(r-1.,0.)*.5;
+  r=max(r-uDt*(uDiss+3.2*(1.-smoothstep(.1,.72,vUv.y))),0.);
+  fragColor=vec4(min(r,1.8),c.g,0.,0.);
+}`),
+  /* дивергенция скорости со стенками (на границе нормальная компонента отражается — молоко бьётся о края) */
+  div: sim(`
+void main(){
+  vec2 L=vUv-vec2(uTexel.x,0.), R=vUv+vec2(uTexel.x,0.), T=vUv+vec2(0.,uTexel.y), B=vUv-vec2(0.,uTexel.y);
+  float vL=texture(uVel,L).x, vR=texture(uVel,R).x, vT=texture(uVel,T).y, vB=texture(uVel,B).y;
+  vec2 C=texture(uVel,vUv).xy;
+  if(L.x<0.) vL=-C.x;
+  if(R.x>1.) vR=-C.x;
+  if(T.y>1.) vT=-C.y;
+  if(B.y<0.) vB=-C.y;
+  fragColor=vec4(.5*(vR-vL+vT-vB),0.,0.,0.);
+}`),
+  curl: sim(`
+void main(){
+  float L=texture(uVel,vUv-vec2(uTexel.x,0.)).y, R=texture(uVel,vUv+vec2(uTexel.x,0.)).y;
+  float T=texture(uVel,vUv+vec2(0.,uTexel.y)).x, B=texture(uVel,vUv-vec2(0.,uTexel.y)).x;
+  fragColor=vec4(.5*(R-L-T+B),0.,0.,0.);
+}`),
+  /* завихрения + сила тяжести (молоко стекает вниз, густое — быстрее) */
+  vort: sim(`
+uniform float uGrav;
+void main(){
+  float L=texture(uAux,vUv-vec2(uTexel.x,0.)).x, R=texture(uAux,vUv+vec2(uTexel.x,0.)).x;
+  float T=texture(uAux,vUv+vec2(0.,uTexel.y)).x, B=texture(uAux,vUv-vec2(0.,uTexel.y)).x;
+  float C=texture(uAux,vUv).x;
+  vec2 f=.5*vec2(abs(T)-abs(B),abs(R)-abs(L));
+  f/=length(f)+1e-4;
+  f*=uK*C*vec2(1.,-1.);
+  vec2 v=texture(uVel,vUv).xy+f*uDt;
+  float m=texture(uDye,vUv).r;
+  v.y-=uGrav*uDt*smoothstep(.1,.8,m);
+  fragColor=vec4(clamp(v,-400.,400.),0.,0.);
+}`),
+  pressure: sim(`
+void main(){
+  float L=texture(uAux,vUv-vec2(uTexel.x,0.)).x, R=texture(uAux,vUv+vec2(uTexel.x,0.)).x;
+  float T=texture(uAux,vUv+vec2(0.,uTexel.y)).x, B=texture(uAux,vUv-vec2(0.,uTexel.y)).x;
+  float d=texture(uVel,vUv).x;
+  fragColor=vec4((L+R+B+T-d)*.25,0.,0.,0.);
+}`),
+  grad: sim(`
+void main(){
+  float L=texture(uAux,vUv-vec2(uTexel.x,0.)).x, R=texture(uAux,vUv+vec2(uTexel.x,0.)).x;
+  float T=texture(uAux,vUv+vec2(0.,uTexel.y)).x, B=texture(uAux,vUv-vec2(0.,uTexel.y)).x;
+  vec2 v=texture(uVel,vUv).xy-vec2(R-L,T-B);
+  /* стенки: скорость, направленная в стену, гасится */
+  if(vUv.x<uTexel.x&&v.x<0.) v.x=0.;
+  if(vUv.x>1.-uTexel.x&&v.x>0.) v.x=0.;
+  if(vUv.y<uTexel.y&&v.y<0.) v.y=0.;
+  if(vUv.y>1.-uTexel.y&&v.y>0.) v.y=0.;
+  fragColor=vec4(v,0.,0.);
+}`),
+};
+
+/* рисует молоко по полю толщины (HDR, дальше общий пост-проход). Не использует камеру и jitter. */
+export const MILK2D = `#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uU;
+uniform vec2 uMouse;
+uniform float uShift;
+uniform vec2 uJit;
+uniform sampler2D uTex;
+uniform vec2 uTexRes;
+out vec4 fragColor;
+float h21(vec2 p){ vec3 q=fract(vec3(p.xyx)*.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+vec2 field(vec2 uv){ vec4 d=texture(uTex,uv); return d.rg; }
+float th(vec2 uv){ return texture(uTex,uv).r; }
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  float asp=uRes.x/uRes.y;
+  vec2 tx=1./uTexRes;
+  /* фон: тёплый тёмный, как страница; лёгкое свечение сверху */
+  vec3 bg=vec3(.030,.020,.012)*(.8+.5*(1.-smoothstep(.2,1.,uv.y)))+vec3(.016,.010,.005)*(1.-smoothstep(0.,.9,length((uv-vec2(.5,1.05))*vec2(asp*.7,1.))));
+  /* толщина со сглаживанием (9 выборок) — убирает сетку билинейной интерполяции */
+  vec2 e=tx*1.15;
+  float c=th(uv);
+  float a=th(uv+vec2(e.x,0.)), b=th(uv-vec2(e.x,0.)), d=th(uv+vec2(0.,e.y)), f=th(uv-vec2(0.,e.y));
+  float s=(c*2.+a+b+d+f)/6.;
+  /* градиент по большему шагу */
+  vec2 e2=tx*2.4;
+  float gx=th(uv+vec2(e2.x,0.))-th(uv-vec2(e2.x,0.));
+  float gy=th(uv+vec2(0.,e2.y))-th(uv-vec2(0.,e2.y));
+  vec2 g=vec2(gx,gy);
+  /* поверхность: край — изолиния толщины, у края мениск, дальше плато */
+  float thr=.36;
+  float w=max(fwidth(s),1e-3)*.9;
+  float m=smoothstep(thr-w,thr+w,s);
+  float depth=smoothstep(thr,1.,s);
+  float h=sqrt(clamp((s-thr)/.3,0.,1.))*.5+depth*.5;
+  vec3 n=normalize(vec3(-g*(5.5+3.*depth),1.));
+  vec3 L=normalize(vec3(-.45,.7,.62));
+  vec3 V=vec3(0.,0.,1.);
+  float dif=clamp(dot(n,L)*.5+.5,0.,1.);
+  vec3 H=normalize(L+V);
+  float spec=pow(max(dot(n,H),0.),90.)*1.4+pow(max(dot(n,H),0.),14.)*.18;
+  float fr=pow(1.-max(n.z,0.),3.);
+  /* цвет: от тёплого сливочного на тонких краях к белому в толще (g — «жирность» из источника) */
+  vec3 cream=vec3(.98,.92,.80), white=vec3(1.,.985,.955);
+  float tint=clamp(texture(uTex,uv).g,0.,1.);
+  vec3 base=mix(cream,white,clamp(depth*.9+tint*.35,0.,1.));
+  /* подповерхностное рассеяние: тонкий слой светится тёплым, в толще — мягкая тень */
+  vec3 col=base*(.55+.62*dif)*(.82+.28*h);
+  col+=vec3(1.,.93,.82)*fr*.28;
+  col+=vec3(1.,.97,.92)*spec*(.5+.5*depth);
+  /* отражение «софтбокса»: широкий мягкий блик вдоль нормали */
+  vec3 R=reflect(-V,n);
+  col+=vec3(1.,.96,.9)*smoothstep(.78,1.,dot(normalize(R+vec3(.35,-.5,0.)),vec3(0.,0.,1.)))*.22*depth;
+  /* тёплый отсвет и контактная тень на фоне вокруг молока */
+  vec2 bl=vec2(0.);
+  float halo=0.;
+  for(int i=0;i<8;i++){
+    float an=float(i)*.785398+.3;
+    vec2 o=vec2(cos(an),sin(an));
+    halo+=th(uv+o*tx*7.)+th(uv+o*tx*16.);
+  }
+  halo=clamp(halo/16.,0.,1.);
+  vec3 bgc=bg*(1.-.6*halo)+vec3(.30,.20,.10)*halo*halo*.55;
+  col=mix(bgc,col,m);
+  /* внизу молоко уходит в тень: подпись читается */
+  col*=mix(.1,1.,smoothstep(.1,.78,uv.y))*mix(1.,.5,smoothstep(.86,1.,uv.y));
+  /* едва заметное зерно, чтобы градиенты не «полосились» */
+  col+=(h21(gl_FragCoord.xy+uTime*13.)-.5)*.004;
+  fragColor=vec4(max(col,0.),1.);
+}`;
+
+export const SCENES = [
+  FLOW,
+  scene(OBJ_MAP, OBJ_LOOK),
+  scene(CELLAR_MAP, CELLAR_LOOK),
+  scene(PROD_MAP, PROD_LOOK),
+  MILK2D,
+];

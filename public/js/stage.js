@@ -1,21 +1,23 @@
-/* WebGL2-сцена: сцена → буфер с субпиксельным сдвигом → накопление (TAA) → пост-проход (резкость, блум, молочная шторка) → FXAA на размере экрана. */
-import { VERT, SCENES, RESOLVE, POST, FXAA } from './shaders.js';
+/* WebGL2-сцена (четыре 3D-сцены и финальная 2D-жидкость): сцена → буфер с субпиксельным сдвигом → накопление (TAA) → пост-проход (резкость, блум, молочная шторка) → FXAA на размере экрана. */
+import { VERT, SCENES, RESOLVE, POST, FXAA, SIM, SIM_VERT } from './shaders.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const halton = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
 
 /* центры молочных шторок и их полуширина по прогрессу прокрутки */
-export const CUTS = [0.18, 0.46, 0.68];
-const HW = 0.03;
+export const CUTS = [0.12, 0.307, 0.453, 0.69];
+const HW = 0.02;
+const MILK = CUTS.length; /* индекс финальной 2D-сцены */
 
 export function layout(P) {
-  const scene = P < CUTS[0] ? 0 : P < CUTS[1] ? 1 : P < CUTS[2] ? 2 : 3;
+  let scene = 0;
+  while (scene < CUTS.length && P >= CUTS[scene]) scene++;
   const lo = scene === 0 ? 0 : CUTS[scene - 1] + HW;
-  const hi = scene === 3 ? 1 : CUTS[scene] - HW;
+  const hi = scene === CUTS.length ? 1 : CUTS[scene] - HW;
   const u = clamp((P - lo) / (hi - lo), 0, 1);
   let wx = 0, wy = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < CUTS.length; i++) {
     const t = (P - (CUTS[i] - HW)) / (2 * HW);
     if (t > 0 && t < 1) { wx = clamp(t * 1.7, 0, 1); wy = clamp((t - 0.4) * 1.8, 0, 1); }
   }
@@ -37,18 +39,23 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   gl.bindVertexArray(gl.createVertexArray());
 
   /* ---------- программы ---------- */
-  function makeProgram(fsSrc) {
+  function makeProgram(fsSrc, names = UNIFORMS, vsSrc = VERT) {
     const p = gl.createProgram();
     const vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs, VERT); gl.compileShader(vs);
+    gl.shaderSource(vs, vsSrc); gl.compileShader(vs);
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fs, fsSrc); gl.compileShader(fs);
     gl.attachShader(p, vs); gl.attachShader(p, fs);
     gl.linkProgram(p);
-    return { p, vs, fs, ready: false, failed: false, u: null, t0: performance.now() };
+    return { p, vs, fs, names, deps: null, ready: false, failed: false, u: null, t0: performance.now() };
   }
   function poll(pr) {
     if (pr.ready || pr.failed) return pr.ready;
+    if (pr.deps) {
+      let all = true;
+      for (const d of pr.deps) { if (!poll(d)) all = false; if (d.failed) { pr.failed = true; return false; } }
+      if (!all) return false;
+    }
     if (parallel && !gl.getProgramParameter(pr.p, parallel.COMPLETION_STATUS_KHR)) return false;
     if (!gl.getProgramParameter(pr.p, gl.LINK_STATUS)) {
       pr.failed = true;
@@ -64,7 +71,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     pr.ready = true;
     DBG && console.log('[LVL] program ready', Math.round(performance.now() - pr.t0) + 'ms');
     pr.u = {};
-    for (const n of UNIFORMS) pr.u[n] = gl.getUniformLocation(pr.p, n);
+    for (const n of pr.names) pr.u[n] = gl.getUniformLocation(pr.p, n);
     return true;
   }
 
@@ -76,7 +83,22 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   const NL = String.fromCharCode(10);
   const VER = '#version 300 es' + NL;
   const HDR = coarse ? VER + '#define COARSE 1' + NL : VER;
-  const compileScene = (i) => { if (!scenes[i]) scenes[i] = makeProgram(SCENES[i].replace(VER, HDR)); };
+  let SIMP = null;
+  const SIM_NAMES = ['uTexel', 'uVel', 'uDye', 'uAux', 'uDt', 'uK', 'uDiss', 'uGrav', 'uPt', 'uVal', 'uAsp'];
+  const compileScene = (i) => {
+    if (scenes[i]) return;
+    if (i === MILK) {
+      /* жидкости нужны отрисовка и смешивание в 16-битные текстуры; без них финальная сцена просто пропускается */
+      if (!floatRT) { scenes[i] = { failed: true, ready: false }; return; }
+      SIMP = {};
+      for (const k in SIM) SIMP[k] = makeProgram(SIM[k], SIM_NAMES, SIM_VERT);
+      const pr = makeProgram(SCENES[i].replace(VER, HDR));
+      pr.deps = Object.values(SIMP);
+      scenes[i] = pr;
+      return;
+    }
+    scenes[i] = makeProgram(SCENES[i].replace(VER, HDR));
+  };
   compileScene(0);
 
   /* ---------- буферы: текущий кадр + два буфера истории (с мипами для блума) ---------- */
@@ -116,9 +138,9 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     target: 0, P: 0, time: reduced ? 3 : 0, mx: 0, my: 0, tmx: 0, tmy: 0,
     cw: 0, ch: 0, visible: true, fade: 1, hold: 0,
     bgNext: 1, bgAt: 0, ready: false, last: 0, immediate: false,
-    si: SCENES.map(() => START), maxi: SCENES.map(() => STEPS.length - 1),
+    si: SCENES.map((_, i) => (i === MILK ? STEPS.length - 1 : START)), maxi: SCENES.map(() => STEPS.length - 1),
     ema: 16, rf: 16.7, slow: 0, fast: 0, warm: 0, block: 0, frames: 0, reset: 2, jf: 0,
-    pP: 0, pmx: 0, pmy: 0, lastScene: -1, maxDt: 0, warmed: [true, false, false, false],
+    pP: 0, pmx: 0, pmy: 0, lastScene: -1, maxDt: 0, warmed: [true, false, false, false, false],
   };
   if (fixedTime !== null) { S.time = fixedTime; reduced = true; }
 
@@ -231,6 +253,177 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
+  /* ---------- финальная 2D-сцена: молоко как жидкость ---------- */
+  const FL = {
+    asp: 0, vw: 0, vh: 0, dw: 0, dh: 0, V: null, D: null, P: null, DV: null, CV: null,
+    q: [], prevU: -2, lastU: 0, idle: 1.2, px: 0.5, py: 0.5, pid: false, reset: true,
+  };
+  const pp = (w, h) => ({ t: [makeTarget(w, h, false, gl.RGBA16F, true), makeTarget(w, h, false, gl.RGBA16F, true)], i: 0 });
+  const cur = (x) => x.t[x.i], nxt = (x) => x.t[1 - x.i], flip = (x) => { x.i = 1 - x.i; };
+  function freeFluid() {
+    for (const x of [FL.V, FL.D, FL.P]) if (x) for (const t of x.t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); }
+    for (const t of [FL.DV, FL.CV]) if (t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); }
+    FL.V = FL.D = FL.P = FL.DV = FL.CV = null;
+  }
+  function ensureFluid() {
+    const asp = S.cw / S.ch;
+    if (FL.V && Math.abs(asp / FL.asp - 1) < 0.06) return;
+    freeFluid();
+    const VS = coarse ? 88 : 120, DS = coarse ? 360 : 540;
+    const dims = (n) => (asp >= 1 ? [Math.round(n * asp), n] : [n, Math.round(n / asp)]);
+    [FL.vw, FL.vh] = dims(VS); [FL.dw, FL.dh] = dims(DS);
+    FL.asp = asp;
+    FL.V = pp(FL.vw, FL.vh); FL.P = pp(FL.vw, FL.vh); FL.D = pp(FL.dw, FL.dh);
+    FL.DV = makeTarget(FL.vw, FL.vh, false, gl.RGBA16F, true);
+    FL.CV = makeTarget(FL.vw, FL.vh, false, gl.RGBA16F, true);
+    FL.reset = true;
+  }
+  function clearFluid() {
+    gl.clearColor(0, 0, 0, 0);
+    for (const t of [...FL.V.t, ...FL.D.t, ...FL.P.t, FL.DV, FL.CV]) { gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.clear(gl.COLOR_BUFFER_BIT); }
+    FL.q.length = 0; FL.prevU = -2; FL.lastU = 0; FL.reset = false; FL.idle = 1.2;
+  }
+  const bindT = (unit, tex) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); };
+  function use(pr, tgt, w, h) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, tgt.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(pr.p);
+    gl.uniform1i(pr.u.uVel, 0); gl.uniform1i(pr.u.uDye, 1); gl.uniform1i(pr.u.uAux, 2);
+    gl.uniform2f(pr.u.uTexel, 1 / FL.vw, 1 / FL.vh);
+  }
+  const draw = () => gl.drawArrays(gl.TRIANGLES, 0, 3);
+  function splat(tgt, w, h, x, y, r, a, b, c) {
+    const pr = SIMP.splat;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, tgt.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(pr.p);
+    gl.uniform4f(pr.u.uPt, x, y, r, 0);
+    gl.uniform4f(pr.u.uVal, a, b, c, 0);
+    gl.uniform1f(pr.u.uAsp, FL.asp);
+    draw();
+  }
+  /* всплеск: пятно, венец из отдельных бугорков, летящие капли */
+  function splash(x, y, size) {
+    const D = cur(FL.D), V = cur(FL.V), a = FL.asp;
+    const rnd = Math.random;
+    size *= 1.35;
+    splat(D, FL.dw, FL.dh, x, y, 0.07 * size, 1.5, 0.9, 0);
+    const n = 13, ph = rnd() * 6.28;
+    for (let i = 0; i < n; i++) {
+      const an = ph + (i / n) * 6.283 + (rnd() - 0.5) * 0.35, c = Math.cos(an), s = Math.sin(an);
+      const R = (0.07 + rnd() * 0.04) * size, sp = (85 + rnd() * 55) * size;
+      splat(D, FL.dw, FL.dh, x + (c * R) / a, y + s * R, 0.03 * size, 1.1, 0.8, 0);
+      splat(V, FL.vw, FL.vh, x + (c * R) / a, y + s * R, 0.05 * size, c * sp, s * sp, 0);
+    }
+    for (let i = 0; i < 9; i++) {
+      const an = rnd() * 6.283, c = Math.cos(an), s = Math.sin(an), R = (0.1 + rnd() * 0.12) * size, sp = (160 + rnd() * 90) * size;
+      splat(D, FL.dw, FL.dh, x + (c * R) / a, y + s * R, 0.0085 * size, 1.3, 0.9, 0);
+      splat(V, FL.vw, FL.vh, x + (c * R) / a, y + s * R, 0.03 * size, c * sp, s * sp, 0);
+    }
+    splat(V, FL.vw, FL.vh, x, y, 0.06 * size, 0, -40 * size, 0);
+  }
+  /* сценарий по прокрутке: [порог u, x, y, размер] */
+  const EVENTS = [
+    [-1, 0.5, 0.62, 1.15], [0.07, 0.22, 0.55, 0.85], [0.14, 0.8, 0.6, 0.9], [0.22, 0.4, 0.4, 0.85],
+    [0.3, 0.68, 0.48, 0.9], [0.38, 0.5, 0.72, 1.1], [0.47, 0.18, 0.38, 0.75], [0.55, 0.84, 0.45, 0.85],
+    [0.64, 0.5, 0.5, 1.3], [0.74, 0.3, 0.64, 0.9], [0.82, 0.7, 0.68, 1], [0.9, 0.5, 0.58, 1.2],
+  ];
+  addEventListener('pointermove', (e) => {
+    if (!FL.V || S.lastScene !== MILK) return;
+    const x = e.clientX / innerWidth, y = 1 - e.clientY / innerHeight;
+    if (FL.pid) FL.q.push([x, y, x - FL.px, y - FL.py]);
+    FL.px = x; FL.py = y; FL.pid = true;
+  }, { passive: true });
+  addEventListener('pointerdown', (e) => {
+    if (S.lastScene !== MILK || !FL.V) return;
+    if (e.target.closest && e.target.closest('a, button')) return;
+    FL.q.push([e.clientX / innerWidth, 1 - e.clientY / innerHeight, 0, 0, 1]);
+  }, { passive: true });
+
+  function stepFluid(dt, u) {
+    if (FL.reset) clearFluid();
+    const { vw, vh, dw, dh } = FL;
+    if (u < FL.prevU) FL.prevU = u - 1e-4; /* назад по прокрутке — сценарий можно сыграть снова */
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    /* события сценария (не больше трёх за кадр) */
+    let fired = 0, left = false;
+    for (const ev of EVENTS) {
+      if (ev[0] <= FL.prevU) continue;
+      if (ev[0] > u) break;
+      if (fired >= 3) { left = true; break; }
+      splash(ev[1], ev[2], ev[3]); fired++; FL.prevU = ev[0];
+    }
+    if (!left) FL.prevU = Math.max(FL.prevU, u);
+    /* спокойные всплески сами по себе */
+    FL.idle -= dt;
+    if (FL.idle < 0 && u > 0.04) {
+      splash(0.15 + Math.random() * 0.7, 0.55 + Math.random() * 0.35, 0.35 + Math.random() * 0.25);
+      FL.idle = 1.7 + Math.random() * 1.6;
+    }
+    /* прокрутка размешивает молоко */
+    const du = Math.abs(u - FL.lastU) / Math.max(dt, 1e-3);
+    FL.lastU = u;
+    if (du > 0.01) {
+      const k = Math.min(du * 7, 1.6), an = Math.random() * 6.283;
+      splat(cur(FL.V), vw, vh, 0.1 + Math.random() * 0.8, 0.35 + Math.random() * 0.5, 0.09, Math.cos(an) * 90 * k, Math.sin(an) * 90 * k, 0);
+    }
+    /* мышь и касания */
+    for (const q of FL.q.splice(0, 12)) {
+      if (q[4]) { splash(q[0], q[1], 0.7); continue; }
+      const len = Math.hypot(q[2] * vw, q[3] * vh) + 1e-4;
+      const mag = Math.min(len * 22, 150) / len;
+      splat(cur(FL.V), vw, vh, q[0], q[1], 0.045, q[2] * vw * mag, q[3] * vh * mag, 0);
+      splat(cur(FL.D), dw, dh, q[0], q[1], 0.03, 0.22, 0.6, 0);
+    }
+    gl.disable(gl.BLEND);
+
+    /* завихрения и тяжесть */
+    bindT(0, cur(FL.V).tex);
+    use(SIMP.curl, FL.CV, vw, vh); draw();
+    bindT(1, cur(FL.D).tex); bindT(2, FL.CV.tex);
+    use(SIMP.vort, nxt(FL.V), vw, vh);
+    gl.uniform1f(SIMP.vort.u.uDt, dt); gl.uniform1f(SIMP.vort.u.uK, 22); gl.uniform1f(SIMP.vort.u.uGrav, 14);
+    draw(); flip(FL.V);
+    /* давление: несжимаемость */
+    bindT(0, cur(FL.V).tex);
+    use(SIMP.div, FL.DV, vw, vh); draw();
+    bindT(0, FL.DV.tex);
+    for (let i = 0; i < (coarse ? 14 : 22); i++) {
+      bindT(2, cur(FL.P).tex);
+      use(SIMP.pressure, nxt(FL.P), vw, vh); draw(); flip(FL.P);
+    }
+    bindT(0, cur(FL.V).tex); bindT(2, cur(FL.P).tex);
+    use(SIMP.grad, nxt(FL.V), vw, vh); draw(); flip(FL.V);
+    /* перенос скорости и толщины молока */
+    bindT(0, cur(FL.V).tex); bindT(2, cur(FL.V).tex);
+    use(SIMP.advect, nxt(FL.V), vw, vh);
+    gl.uniform1f(SIMP.advect.u.uDt, dt); gl.uniform1f(SIMP.advect.u.uK, 1); gl.uniform1f(SIMP.advect.u.uDiss, 0.55);
+    draw(); flip(FL.V);
+    bindT(0, cur(FL.V).tex); bindT(1, cur(FL.D).tex);
+    use(SIMP.advectDye, nxt(FL.D), dw, dh);
+    gl.uniform1f(SIMP.advectDye.u.uDt, dt); gl.uniform1f(SIMP.advectDye.u.uK, 1); gl.uniform1f(SIMP.advectDye.u.uDiss, 0.14);
+    draw(); flip(FL.D);
+  }
+
+  function drawMilk(lay, dt) {
+    const pr = scenes[MILK];
+    const k = STEPS[S.si[MILK]];
+    const sw = Math.max(2, Math.round(S.cw * k)), sh = Math.max(2, Math.round(S.ch * k));
+    allocTargets(sw, sh);
+    ensureFluid();
+    stepFluid(reduced && Math.abs(lay.u - FL.lastU) < 1e-4 ? 0 : Math.min(dt, 1 / 30), lay.u);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, B.cur.fbo);
+    gl.viewport(0, 0, sw, sh);
+    gl.useProgram(pr.p);
+    bindT(0, cur(FL.D).tex);
+    gl.uniform1i(pr.u.uTex, 0);
+    gl.uniform2f(pr.u.uTexRes, FL.dw, FL.dh);
+    gl.uniform2f(pr.u.uRes, sw, sh);
+    gl.uniform1f(pr.u.uTime, S.time);
+    gl.uniform1f(pr.u.uU, lay.u);
+    draw();
+  }
+
   /* адаптивное разрешение — по ступеням, отдельно для каждой сцены */
   function adapt(sc, ms, compiling) {
     if (S.warm > 0) { S.warm--; return; }
@@ -284,7 +477,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     if (compiling && now > S.bgAt) {
       const pr = scenes[S.bgNext];
       if (!pr) compileScene(S.bgNext);
-      else if (poll(pr) || pr.failed) { if (pr.ready) warmUp(pr); S.bgNext++; S.bgAt = now + 250; }
+      else if (poll(pr) || pr.failed) { if (pr.ready) { warmUp(pr); if (pr.deps) pr.deps.forEach(warmUp); } S.bgNext++; S.bgAt = now + 250; }
     }
 
     const lay = layout(clamp(S.P, 0, 1));
@@ -294,7 +487,7 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     let sc = lay.scene;
     if (!scenes[sc]) compileScene(sc);
     while (sc > 0 && !ok(sc)) sc--;
-    if (sc !== S.lastScene) { S.reset = Math.max(S.reset, 1); S.lastScene = sc; S.warm = 25; S.slow = S.fast = 0; }
+    if (sc !== S.lastScene) { S.reset = Math.max(S.reset, 1); S.lastScene = sc; if (sc === MILK) FL.reset = true; S.warm = 25; S.slow = S.fast = 0; }
 
     /* сила накопления: чем быстрее движется кадр, тем больше берём от текущего (иначе «шлейф») */
     const dP = Math.abs(S.P - S.pP) / Math.max(dt, 1e-3);
@@ -306,12 +499,13 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     let alpha = floatRT ? mix(base, 0.5, mv) : 1;
     let jit = floatRT ? 1 : 0;
     if (S.reset > 0) { alpha = 1; jit = 0; S.reset--; }
+    if (sc === MILK) { alpha = 1; jit = 0; } /* жидкость сама меняется каждый кадр — накопление не нужно */
     S.jf = S.jf % 16 + 1;
     const jx = (halton(S.jf, 2) - 0.5) * jit, jy = (halton(S.jf, 3) - 0.5) * jit;
 
     if (ok(sc)) {
       const c0 = performance.now();
-      drawScene(sc, lay, jx, jy);
+      if (sc === MILK) drawMilk(lay, dt); else drawScene(sc, lay, jx, jy);
       const c1 = performance.now();
       drawResolve(alpha);
       const c2 = performance.now();

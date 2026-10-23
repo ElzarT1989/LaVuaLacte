@@ -11,7 +11,7 @@ const root = document.documentElement;
 const story = $('#story');
 const canvas = $('#gl');
 const chapters = $$('.chapter').map((el) => ({
-  el, a: +el.dataset.a, b: +el.dataset.b, f: +(el.dataset.f || 0.018),
+  el, a: +el.dataset.a, b: +el.dataset.b, f: +(el.dataset.f || 0.012),
 }));
 const railItems = $$('.rail a');
 const loader = $('#loader');
@@ -89,8 +89,9 @@ if (stage) {
     }
     const stageOn = P > 0.0 && P < 0.999;
     root.classList.toggle('stage-end', P > 0.985);
+    root.classList.toggle('milk2d', P > 0.69);
     let act = 0;
-    railItems.forEach((a, i) => { if (P >= +a.dataset.p - 0.02) act = i; });
+    railItems.forEach((a, i) => { if (P >= +a.dataset.p - 0.013) act = i; });
     railItems.forEach((a, i) => a.classList.toggle('on', i === act));
     $('.scroll-hint').style.opacity = (1 - smooth(0.0, 0.03, P)).toFixed(2);
     void stageOn;
@@ -101,7 +102,7 @@ if (stage) {
     e.preventDefault();
     const total = story.offsetHeight - innerHeight;
     const top = story.getBoundingClientRect().top + scrollY;
-    scrollTo({ top: top + (+a.dataset.p + 0.012) * total, behavior: reduced ? 'auto' : 'smooth' });
+    scrollTo({ top: top + (+a.dataset.p + 0.008) * total, behavior: reduced ? 'auto' : 'smooth' });
   }));
 }
 
