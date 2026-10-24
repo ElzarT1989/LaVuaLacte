@@ -103,8 +103,9 @@ section:not(.story) { position: relative; background: var(--bg); }
 .products { padding: clamp(60px, 9vw, 120px) 0 clamp(80px, 12vw, 160px); background: var(--bg2); }
 .products h2, .contacts h2 { font-family: var(--serif); font-weight: 300; font-size: clamp(40px, 6vw, 92px); line-height: 1; letter-spacing: -.015em; }
 .plist { margin-top: clamp(40px, 6vw, 80px); border-top: 1px solid var(--line); }
-.plist li { display: grid; grid-template-columns: 70px 1fr auto; gap: 24px; align-items: center; padding: 34px 0; border-bottom: 1px solid var(--line); transition: padding .5s; }
+.plist li { display: grid; grid-template-columns: 56px minmax(200px, 300px) 1fr auto; gap: 24px; align-items: center; padding: 34px 0; border-bottom: 1px solid var(--line); transition: padding .5s; }
 .plist li:hover { padding-left: 14px; }
+.plist .pimg { width: 100%; height: auto; aspect-ratio: 19 / 8; object-fit: cover; border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,.35); }
 .plist .num { font-size: 12px; letter-spacing: .2em; color: var(--gold); }
 .plist h3 { font-family: var(--serif); font-weight: 300; font-size: clamp(30px, 3.8vw, 54px); line-height: 1.05; }
 .plist p { color: var(--mute); margin-top: 8px; max-width: 34rem; }
@@ -148,6 +149,8 @@ section:not(.story) { position: relative; background: var(--bg); }
   .chapter.cap.pour .cta { justify-content: flex-start; }
   .chapter h2 { font-size: clamp(36px, 10vw, 54px); }
   .plist li { grid-template-columns: 38px 1fr; }
+  .plist .pimg { grid-column: 2; }
+  .plist li > div { grid-column: 2; }
   .plist li > a { grid-column: 2; justify-self: start; }
   .cgrid { grid-template-columns: 1fr; }
   .cgrid li { grid-template-columns: 1fr; gap: 2px; }

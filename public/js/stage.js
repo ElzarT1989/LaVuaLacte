@@ -1,5 +1,6 @@
 /* WebGL2-сцена (четыре 3D-сцены и финальная 2D-жидкость): сцена → буфер с субпиксельным сдвигом → накопление (TAA) → пост-проход (резкость, блум, молочная шторка) → FXAA на размере экрана. */
 import { VERT, SCENES, RESOLVE, POST, FXAA, SIM, SIM_VERT } from './shaders.js';
+import { drawLabels } from './labels.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -25,7 +26,7 @@ export function layout(P) {
 }
 
 const DBG = /debug/.test(location.search);
-const UNIFORMS = ['uRes', 'uTime', 'uU', 'uMouse', 'uShift', 'uJit', 'uTex', 'uTexRes', 'uWipe', 'uFade', 'uCur', 'uHist', 'uAlpha', 'uStr'];
+const UNIFORMS = ['uRes', 'uTime', 'uU', 'uMouse', 'uShift', 'uJit', 'uTex', 'uTexRes', 'uWipe', 'uFade', 'uCur', 'uHist', 'uAlpha', 'uStr', 'uLab'];
 
 export function createStage(canvas, { onReady, onFail, reduced = false, fixedTime = null, fixedScale = null } = {}) {
   const gl = canvas.getContext('webgl2', {
@@ -176,6 +177,29 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
   /* ---------- отрисовка ---------- */
   const ok = (sc) => !!scenes[sc] && poll(scenes[sc]);
 
+  /* этикетки упаковок витрины: рисуем на канвасе, грузим текстурой (premultiplied, с мипами); шрифты подъезжают позже — перерисовываем */
+  let labTex = null, labT = 0;
+  function uploadLabels() {
+    const cv = drawLabels(coarse ? 1024 : 2048);
+    if (!labTex) labTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, labTex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+  uploadLabels();
+  if (document.fonts) {
+    document.fonts.addEventListener('loadingdone', () => { clearTimeout(labT); labT = setTimeout(uploadLabels, 150); });
+    document.fonts.ready.then(() => { clearTimeout(labT); labT = setTimeout(uploadLabels, 150); });
+  }
+
   function drawScene(sc, lay, jx, jy) {
     const pr = scenes[sc];
     const k = STEPS[S.si[sc]];
@@ -191,6 +215,11 @@ export function createStage(canvas, { onReady, onFail, reduced = false, fixedTim
     const wide = S.cw / S.ch > 1.15;
     gl.uniform1f(pr.u.uShift, sc === 0 && wide ? 0.55 * (1 - smooth(0.04, 0.55, lay.u)) : 0);
     gl.uniform2f(pr.u.uJit, jx, jy);
+    if (sc === 3) {
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, labTex);
+      gl.uniform1i(pr.u.uLab, 3);
+      gl.activeTexture(gl.TEXTURE0);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
