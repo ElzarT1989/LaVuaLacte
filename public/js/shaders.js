@@ -705,19 +705,19 @@ vec2 bowlA(vec3 p){
   float dW=bowlD(b,profA(b.y),HA,.214,.034,.012,dIn);
   vec2 r=vec2(dW,33.);
   if(b.y>.2){
-    float m=sdEll(b-vec3(0.,.45,0.),vec3(.5,.18,.5));
+    float m=sdEll(b-vec3(0.,.5,0.),vec3(.5,.24,.5));
     m+=.007*sin(b.x*23.)*sin(b.z*21.+1.)+.004*sin((atan(b.x,b.z)*2.+length(b.xz)*16.));
     r=opU(r,vec2(max(m,dIn+.006),16.));
-    vec3 t=b-vec3(0.,.615,0.);
+    vec3 t=b-vec3(0.,.73,0.);
     for(int i=ZERO;i<3;i++){
       float fi=float(i);
-      vec3 bp=t-vec3(cos(fi*2.1+.4)*.2,-.045-.02*fi-.06*smoothstep(.12,.2,length(t.xz)),sin(fi*2.1+.4)*.17);
+      vec3 bp=t-vec3(cos(fi*2.1+.4)*.2,-.0-.015*fi-.05*smoothstep(.12,.2,length(t.xz)),sin(fi*2.1+.4)*.17);
       bp.xz=rot(fi)*bp.xz;
       r=opU(r,vec2(sdEll(bp,vec3(.085,.09,.085))+.004*sin(bp.x*80.)*sin(bp.y*76.)*sin(bp.z*84.),18.));
     }
     for(int i=ZERO;i<5;i++){
       float fi=float(i);
-      vec3 bp=t-vec3(cos(fi*1.3+2.)*.3,-.1-.03*sin(fi*3.),sin(fi*1.3+2.)*.3);
+      vec3 bp=t-vec3(cos(fi*1.3+2.)*.3,-.06-.02*sin(fi*3.),sin(fi*1.3+2.)*.3);
       r=opU(r,vec2(length(bp)-.046,19.));
     }
     vec3 m2=t-vec3(.03,.0,-.04);
@@ -991,7 +991,7 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
     if(rad<-.1&&n.y<.7){ rough=.3; return vec3(.9,.8,.6)*(.82+.3*gr); }
     vec3 col=vec3(.5,.32,.17)*gr;
     if(n.y>.75||h>5.62) col=vec3(.36,.22,.11)*gr;
-    col=mix(col,vec3(.36,.22,.11)*gr,smoothstep(1.2,.9,h));
+    col=mix(col,vec3(.44,.28,.14)*gr,smoothstep(1.2,.9,h));
     vec3 inl=vec3(.72,.55,.3);
     float lines=band(h,5.62,5.84)+band(h,2.88,3.08);
     float ph=atan(q.x,q.z)/6.28318*11.+.5;
@@ -1001,7 +1001,7 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
     float dot0=1.-smoothstep(.2,.3,length(u));
     col=mix(col,inl*(.9+.15*gr),clamp(lines+rh,0.,1.));
     col=mix(col,vec3(.28,.16,.07),dot0*rh);
-    return col*(1.+.6*smoothstep(.1,-.6,n.y));
+    return col*(1.+1.3*smoothstep(.15,-.7,n.y));
   }
   if(id<36.5){ rough=.2; spec=1.; return vec3(.72,.76,.3); }
   if(id<37.5){ rough=.6; spec=.2; return vec3(.32,.28,.12)*(.8+.4*fbmL(p*60.)); }
@@ -1021,6 +1021,7 @@ vec3 shade(vec3 p,vec3 n,vec3 rd,float id,float t){
   float rough,spec,sss;
   vec3 alb=matColor(p,n,id,rough,spec,sss);
   vec3 col=lighting(p,n,rd,alb,rough,spec,sss);
+  if(id>32.5&&id<34.5) col+=alb*vec3(.55,.42,.24)*.45*smoothstep(.3,-.8,n.y);   /* отсвет от молочного пола на низ чаш */
   if(id<3.5){
     vec3 rdr=reflect(rd,n);
     vec2 hr=marchR(p+n*.01,rdr);
