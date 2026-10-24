@@ -726,6 +726,12 @@ vec2 bowlA(vec3 p){
   }
   return r;
 }
+/* зёрна творога: решётка синусов с искажением, чтобы комочки были неровными */
+float curd(vec3 b){
+  vec3 w=b*vec3(72.,66.,78.);
+  w+=2.6*vec3(sin(b.z*19.+b.y*7.),sin(b.x*17.+b.z*11.),sin(b.y*13.+b.x*21.));
+  return abs(sin(w.x)*sin(w.y+1.)*sin(w.z+2.));
+}
 /* творог в деревянной тостук Б2: мёд, ягоды, мята; ромбы вырезаны по поясу */
 vec2 bowlB(vec3 p){
   vec3 b=p; b.xz=rot(.2)*b.xz;
@@ -745,16 +751,16 @@ vec2 bowlB(vec3 p){
   }
   vec2 r=vec2(dW,34.);
   if(b.y>.1){
-    float m=sdEll(b-vec3(0.,.33,0.),vec3(.55,.195,.55));
-    m+=.008*sin(b.x*37.)*sin(b.y*31.)*sin(b.z*35.)+.004*sin(b.x*83.+b.z*61.);
+    float m=sdEll(b-vec3(0.,.36,0.),vec3(.55,.26,.55));
+    m+=.016*(.55-pow(curd(b),.55))+.006*sin(b.x*29.+b.z*23.);
     r=opU(r,vec2(max(m,dIn+.006),17.));
-    vec3 t=b-vec3(0.,.52,0.);
+    vec3 t=b-vec3(0.,.64,0.);
     float honey=smin(sdEll(t-vec3(-.05,-.02,.03),vec3(.22,.04,.18)),sdEll(t-vec3(.2,-.06,.1),vec3(.1,.035,.08)),.1);
     honey=smin(honey,sdEll(t-vec3(-.02,-.17,.24),vec3(.038,.1,.032)),.08);
     r=opU(r,vec2(honey,22.));
     for(int i=ZERO;i<4;i++){
       float fi=float(i);
-      vec3 bp=t-vec3(cos(fi*1.9+.3)*.33,-.1-.02*fi,sin(fi*1.9+.3)*.3);
+      vec3 bp=t-vec3(cos(fi*1.9+.3)*.33,-.075-.01*fi,sin(fi*1.9+.3)*.3);
       float d=length(bp)-.062+.011*sin(bp.x*70.)*sin(bp.y*66.)*sin(bp.z*74.);
       r=opU(r,vec2(d,18.));
     }
@@ -923,7 +929,12 @@ vec3 matColor(vec3 p,vec3 n,float id,out float rough,out float spec,out float ss
   }
   if(id<15.5){ rough=.2; spec=.9; return vec3(.84,.82,.77); }
   if(id<16.5){ rough=.38; spec=.5; sss=.9; return vec3(.88,.88,.86); }
-  if(id<17.5){ rough=.45; spec=.4; sss=.9; return vec3(.86,.85,.8)*(.9+.18*fbmL(p*45.)); }
+  if(id<17.5){                                   /* творог: зёрна-комочки со светлыми боками и тенью между ними */
+    vec3 cb=p-S4; cb.xz=rot(.2)*cb.xz;
+    float g=curd(cb);
+    rough=.5; spec=.35; sss=.9;
+    return vec3(.88,.86,.78)*(.66+.5*pow(g,.55))*(.92+.14*fbmL(p*30.));
+  }
   if(id<18.5){ rough=.18; spec=1.; return vec3(.62,.04,.09)*(.85+.3*fbmL(p*60.)); }
   if(id<19.5){ rough=.3; spec=.5; return vec3(.1,.13,.34)*(.8+.4*fbmL(p*40.)); }
   if(id<20.5){                                   /* тёмный виноград с восковым налётом */
